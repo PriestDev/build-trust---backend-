@@ -1,0 +1,384 @@
+import pool from './database.js';
+
+export async function initializeDatabase() {
+  try {
+    // Create users table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      name VARCHAR(255) NOT NULL,
+      role ENUM('client', 'developer') DEFAULT 'client',
+      profile_image VARCHAR(500),
+      bio TEXT,
+      phone VARCHAR(20),
+      is_active BOOLEAN DEFAULT TRUE,
+      email_verified BOOLEAN DEFAULT FALSE,
+      last_login TIMESTAMP NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_email (email),
+      INDEX idx_role (role),
+      INDEX idx_is_active (is_active)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create sessions table for token management
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        token VARCHAR(500) NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_token (token),
+        INDEX idx_user_id (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create email_verification_tokens table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS email_verification_tokens (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        token VARCHAR(255) UNIQUE NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_token (token),
+        INDEX idx_user_id (user_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create skills table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS skills (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        category VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_name (name),
+        INDEX idx_category (category)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create user_skills table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_skills (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        skill_id INT NOT NULL,
+        proficiency_level ENUM('beginner', 'intermediate', 'advanced', 'expert') DEFAULT 'beginner',
+        years_experience INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_user_skill (user_id, skill_id),
+        INDEX idx_user_id (user_id),
+        INDEX idx_skill_id (skill_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create projects table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        client_id INT NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT NOT NULL,
+        budget_min DECIMAL(10,2),
+        budget_max DECIMAL(10,2),
+        deadline DATE,
+        status ENUM('open', 'in_progress', 'completed', 'cancelled') DEFAULT 'open',
+        project_type ENUM('fixed_price', 'hourly') DEFAULT 'fixed_price',
+        estimated_hours INT,
+        required_experience ENUM('entry', 'intermediate', 'expert') DEFAULT 'intermediate',
+        location VARCHAR(255),
+        is_remote BOOLEAN DEFAULT TRUE,
+        attachments JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_client_id (client_id),
+        INDEX idx_status (status),
+        INDEX idx_project_type (project_type),
+        INDEX idx_is_remote (is_remote),
+        FULLTEXT idx_title_description (title, description)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create project_skills table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_skills (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        skill_id INT NOT NULL,
+        is_required BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_project_skill (project_id, skill_id),
+        INDEX idx_project_id (project_id),
+        INDEX idx_skill_id (skill_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create applications table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS applications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        developer_id INT NOT NULL,
+        proposal TEXT NOT NULL,
+        bid_amount DECIMAL(10,2),
+        estimated_days INT,
+        status ENUM('pending', 'accepted', 'rejected', 'withdrawn') DEFAULT 'pending',
+        attachments JSON,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (developer_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_application (project_id, developer_id),
+        INDEX idx_project_id (project_id),
+        INDEX idx_developer_id (developer_id),
+        INDEX idx_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create contracts table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contracts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        developer_id INT NOT NULL,
+        application_id INT,
+        agreed_amount DECIMAL(10,2) NOT NULL,
+        agreed_days INT,
+        start_date DATE,
+        end_date DATE,
+        status ENUM('active', 'completed', 'terminated', 'disputed') DEFAULT 'active',
+        milestones JSON,
+        payment_terms TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (developer_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE SET NULL,
+        INDEX idx_project_id (project_id),
+        INDEX idx_developer_id (developer_id),
+        INDEX idx_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create conversations table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS conversations (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        participant1_id INT NOT NULL,
+        participant2_id INT NOT NULL,
+        last_message_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (participant1_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (participant2_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_participant1 (participant1_id),
+        INDEX idx_participant2 (participant2_id),
+        INDEX idx_last_message (last_message_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create messages table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        conversation_id INT NOT NULL,
+        sender_id INT NOT NULL,
+        content TEXT NOT NULL,
+        message_type ENUM('text', 'file', 'image') DEFAULT 'text',
+        attachments JSON,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_conversation_id (conversation_id),
+        INDEX idx_sender_id (sender_id),
+        INDEX idx_created_at (created_at),
+        INDEX idx_is_read (is_read)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create payments table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        contract_id INT NOT NULL,
+        payer_id INT NOT NULL,
+        payee_id INT NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        payment_type ENUM('milestone', 'final', 'deposit') DEFAULT 'milestone',
+        status ENUM('pending', 'completed', 'failed', 'refunded') DEFAULT 'pending',
+        transaction_id VARCHAR(255),
+        payment_method VARCHAR(100),
+        notes TEXT,
+        due_date DATE,
+        paid_at TIMESTAMP NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE CASCADE,
+        FOREIGN KEY (payer_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (payee_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_contract_id (contract_id),
+        INDEX idx_payer_id (payer_id),
+        INDEX idx_payee_id (payee_id),
+        INDEX idx_status (status),
+        INDEX idx_due_date (due_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create reviews table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS reviews (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        reviewer_id INT NOT NULL,
+        reviewee_id INT NOT NULL,
+        project_id INT,
+        contract_id INT,
+        rating INT NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        comment TEXT,
+        review_type ENUM('client_to_developer', 'developer_to_client') NOT NULL,
+        is_public BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (reviewer_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (reviewee_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+        FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL,
+        INDEX idx_reviewer_id (reviewer_id),
+        INDEX idx_reviewee_id (reviewee_id),
+        INDEX idx_project_id (project_id),
+        INDEX idx_contract_id (contract_id),
+        INDEX idx_rating (rating),
+        INDEX idx_review_type (review_type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create portfolios table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS portfolios (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        project_url VARCHAR(500),
+        github_url VARCHAR(500),
+        images JSON,
+        technologies JSON,
+        start_date DATE,
+        end_date DATE,
+        is_featured BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_user_id (user_id),
+        INDEX idx_is_featured (is_featured),
+        FULLTEXT idx_title_description (title, description)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create notifications table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        type VARCHAR(100) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        message TEXT,
+        data JSON,
+        is_read BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_user_id (user_id),
+        INDEX idx_type (type),
+        INDEX idx_is_read (is_read),
+        INDEX idx_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Create saved_developers table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS saved_developers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        client_id INT NOT NULL,
+        developer_id INT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (developer_id) REFERENCES users(id) ON DELETE CASCADE,
+        UNIQUE KEY unique_save (client_id, developer_id),
+        INDEX idx_client_id (client_id),
+        INDEX idx_developer_id (developer_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    // Add additional columns to users table if they don't exist
+    const additionalUserColumns = [
+      'phone VARCHAR(20)',
+      'location VARCHAR(255)',
+      'website VARCHAR(500)',
+      'linkedin VARCHAR(500)',
+      'github VARCHAR(500)',
+      'hourly_rate DECIMAL(8,2)',
+      'availability_status ENUM("available", "busy", "unavailable") DEFAULT "available"',
+      'years_experience INT DEFAULT 0',
+      'completed_projects INT DEFAULT 0',
+      'rating DECIMAL(3,2) DEFAULT 0.00',
+      'total_reviews INT DEFAULT 0',
+      'setup_completed BOOLEAN DEFAULT FALSE',
+      'preferred_contact VARCHAR(50)',
+      'company_type VARCHAR(255)',
+      'project_types TEXT',  // JSON array
+      'preferred_cities TEXT',  // JSON array
+      'budget_range VARCHAR(50)',
+      'working_style VARCHAR(255)',
+      'availability VARCHAR(50)',
+      'specializations TEXT'  // JSON array
+    ];
+
+    for (const column of additionalUserColumns) {
+      try {
+        await pool.query(`ALTER TABLE users ADD COLUMN ${column}`);
+      } catch (error) {
+        if (!(error.message.includes('Duplicate column name'))) {
+          throw error;
+        }
+      }
+    }
+
+    // Add bio column if missing
+    try {
+      await pool.query(`ALTER TABLE users ADD COLUMN bio TEXT`);
+    } catch (error) {
+      if (!(error.message.includes('Duplicate column name'))) {
+        throw error;
+      }
+    }
+
+    // Add email_verified column to users table
+    try {
+      await pool.query(`
+        ALTER TABLE users ADD COLUMN email_verified BOOLEAN DEFAULT FALSE
+      `);
+    } catch (error) {
+      // Column might already exist, ignore error
+      if (!(error.message.includes('Duplicate column name'))) {
+        throw error;
+      }
+    }
+
+    console.log('✅ Database tables initialized successfully');
+  } catch (error) {
+    console.error('❌ Error initializing database:', error);
+    throw error;
+  }
+}
