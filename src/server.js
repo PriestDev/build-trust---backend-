@@ -11,6 +11,7 @@ const PORT = process.env.PORT || 3001;
 
 const allowedOrigins = [
   'https://buildtrust.vercel.app',
+  'https://build-trust-frontend.vercel.app',
   'http://localhost:3001',
   'http://127.0.0.1:3001',
   'http://192.168.1.64:3001',
