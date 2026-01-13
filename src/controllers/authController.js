@@ -1,0 +1,407 @@
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import pool from '../config/database.js';
+import { z } from 'zod';
+import { sendVerificationEmail, generateVerificationToken, sendPasswordResetEmail } from '../services/email.js';
+
+const signupSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string()
+    .min(6, 'Password must be at least 6 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one capital letter')
+    .regex(/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>\/?]/, 'Password must contain at least one special character'),
+  name: z.string().optional(),
+  role: z.enum(['client', 'developer']).optional().default('client'),
+});
+
+const loginSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export const signup = async (req, res) => {
+  try {
+    const validatedData = signupSchema.parse(req.body);
+    const { email, password, name, role } = validatedData;
+
+    // Check if user already exists
+    const [existingUsers] = await pool.query(
+      'SELECT id FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (Array.isArray(existingUsers) && existingUsers.length > 0) {
+      return res.status(400).json({
+        error: 'An account with this email already exists',
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    const [result] = await pool.query(
+      'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, FALSE)',
+      [email, hashedPassword, name || null, role || 'client']
+    );
+
+    const userId = result.insertId;
+
+    // Generate verification token
+    const verificationToken = generateVerificationToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
+
+    // Store verification token
+    await pool.query(
+      'INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+      [userId, verificationToken, expiresAt]
+    );
+
+    // Send verification email
+    await sendVerificationEmail(email, verificationToken);
+
+    // 🔑 Create JWT for session
+    const token = jwt.sign(
+      { userId: userId, email, role },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Store session in DB
+    const sessionExpiresAt = new Date();
+    sessionExpiresAt.setDate(sessionExpiresAt.getDate() + 7); // 7 days
+
+    // Insert session
+    await pool.query(
+      'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)',
+      [userId, token, sessionExpiresAt]
+    );
+
+    res.status(201).json({
+      message: 'Account created successfully. Please check your email to verify your account.',
+      token,
+      user: {
+        id: userId,
+        email,
+        name: name || null,
+        role: role || 'client',
+        email_verified: false,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: error.errors,
+      });
+    }
+
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'An error occurred while creating your account' });
+  }
+};
+
+export const login = async (req, res) => {
+  try {
+    const validatedData = loginSchema.parse(req.body);
+    const { email, password } = validatedData;
+
+    // Find user
+    const [users] = await pool.query(
+      'SELECT id, email, password, name, role FROM users WHERE email = ?',
+      [email]
+    );
+
+    if (!Array.isArray(users) || users.length === 0) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const user = users[0];
+
+    // Verify password
+    const isValidPassword = await bcrypt.compare(password, user.password);
+
+    if (!isValidPassword) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: user.id, email: user.email },
+      process.env.JWT_SECRET || 'your_secret_key',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
+    );
+
+    // Store session
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+    await pool.query('INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, token, expiresAt]);
+
+    res.json({
+      message: 'Signed in successfully',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation error', details: error.errors });
+    }
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'An error occurred while signing in' });
+  }
+};
+
+export const getMe = async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: 'Access token required' });
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
+
+    // Verify session exists and is valid
+    const [sessions] = await pool.query(
+      'SELECT * FROM sessions WHERE user_id = ? AND token = ? AND expires_at > NOW()',
+      [decoded.userId, token]
+    );
+
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+      return res.status(401).json({ error: 'Invalid or expired session' });
+    }
+
+    // Get user data
+    const [users] = await pool.query('SELECT id, email, name, role, created_at, email_verified FROM users WHERE id = ?', [decoded.userId]);
+
+    if (!Array.isArray(users) || users.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = users[0];
+
+    res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, created_at: user.created_at, email_verified: user.email_verified || false } });
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+export const updateProfile = async (req, res) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.status(401).json({ error: 'Access token required' });
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
+    const userId = decoded.userId || decoded.id; // Use actual ID from token
+
+    const { name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations } = req.body;
+
+    await pool.query(
+      `UPDATE users SET 
+        name = ?, bio = ?, phone = ?, location = ?, preferred_contact = ?, 
+        company_type = ?, years_experience = ?, project_types = ?, preferred_cities = ?, 
+        budget_range = ?, working_style = ?, availability = ?, specializations = ?, 
+        setup_completed = TRUE 
+      WHERE id = ?`,
+      [name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations, userId]
+    );
+
+    res.json({ message: 'Profile updated successfully' });
+  } catch (error) {
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      return res.status(403).json({ error: 'Invalid token' });
+    }
+    console.error('Profile update error:', error);
+    res.status(500).json({ error: 'An error occurred while updating your profile' });
+  }
+};
+
+export const logout = async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (token) {
+      // Delete session
+      await pool.query('DELETE FROM sessions WHERE token = ?', [token]);
+    }
+
+    res.json({ message: 'Signed out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ error: 'An error occurred while signing out' });
+  }
+};
+
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) return res.status(400).json({ error: 'Verification token is required' });
+
+    // Find verification token
+    const [tokens] = await pool.query('SELECT * FROM email_verification_tokens WHERE token = ? AND used = FALSE AND expires_at > NOW()', [token]);
+
+    if (!Array.isArray(tokens) || tokens.length === 0) return res.status(400).json({ error: 'Invalid or expired verification token' });
+
+    const verificationToken = tokens[0];
+
+    // Mark token as used
+    await pool.query('UPDATE email_verification_tokens SET used = TRUE WHERE id = ?', [verificationToken.id]);
+
+    // Update user as verified
+    await pool.query('UPDATE users SET email_verified = TRUE WHERE id = ?', [verificationToken.user_id]);
+
+    // Get updated user
+    const [updatedUsers] = await pool.query('SELECT id, email, name, role FROM users WHERE id = ?', [verificationToken.user_id]);
+
+    const updatedUser = updatedUsers[0];
+
+    // Generate JWT token
+    const jwtToken = jwt.sign({ userId: updatedUser.id, email: updatedUser.email }, process.env.JWT_SECRET || 'your_secret_key', { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
+
+    // Store session
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // 7 days
+
+    await pool.query('INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)', [updatedUser.id, jwtToken, expiresAt]);
+
+    res.json({ message: 'Email verified successfully', token: jwtToken, user: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name, role: updatedUser.role, email_verified: true } });
+  } catch (error) {
+    console.error('Email verification error:', error);
+    res.status(500).json({ error: 'An error occurred while verifying your email' });
+  }
+};
+
+export const resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    // Find user
+    const [users] = await pool.query('SELECT id, email_verified FROM users WHERE email = ?', [email]);
+
+    if (!Array.isArray(users) || users.length === 0) return res.status(404).json({ error: 'User not found' });
+
+    const user = users[0];
+
+    if (user.email_verified) return res.status(400).json({ error: 'Email is already verified' });
+
+    // Delete existing unused tokens for this user
+    await pool.query('DELETE FROM email_verification_tokens WHERE user_id = ? AND used = FALSE', [user.id]);
+
+    // Generate new verification token
+    const verificationToken = generateVerificationToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
+
+    // Store new verification token
+    await pool.query('INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, verificationToken, expiresAt]);
+
+    // Send verification email
+    const emailSent = await sendVerificationEmail(email, verificationToken);
+    if (!emailSent) return res.status(500).json({ error: 'Failed to send verification email' });
+
+    res.json({ message: 'Verification email sent successfully' });
+  } catch (error) {
+    console.error('Resend verification error:', error);
+    res.status(500).json({ error: 'An error occurred while resending verification email' });
+  }
+};
+
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    // Find user
+    const [users] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+
+    if (!Array.isArray(users) || users.length === 0) {
+      // Don't reveal if email exists or not for security
+      return res.json({ message: 'If an account with this email exists, a password reset link has been sent.' });
+    }
+
+    const user = users[0];
+
+    // Delete existing unused tokens for this user
+    await pool.query('DELETE FROM password_reset_tokens WHERE user_id = ? AND used = FALSE', [user.id]);
+
+    // Generate reset token
+    const resetToken = generateVerificationToken();
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour expiry
+
+    // Store reset token
+    await pool.query('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, resetToken, expiresAt]);
+
+    // Send reset email
+    const emailSent = await sendPasswordResetEmail(email, resetToken);
+    if (!emailSent) {
+      console.error('Failed to send password reset email');
+      return res.status(500).json({ error: 'Failed to send password reset email' });
+    }
+
+    res.json({ message: 'If an account with this email exists, a password reset link has been sent.' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'An error occurred while processing your request' });
+  }
+};
+
+export const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+
+    if (!token || !password) return res.status(400).json({ error: 'Token and password are required' });
+
+    // Validate password strength
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!/[A-Z]/.test(password)) return res.status(400).json({ error: 'Password must contain at least one capital letter' });
+    if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>\/?]/.test(password)) return res.status(400).json({ error: 'Password must contain at least one special character' });
+
+    // Find reset token
+    const [tokens] = await pool.query('SELECT * FROM password_reset_tokens WHERE token = ? AND used = FALSE AND expires_at > NOW()', [token]);
+
+    if (!Array.isArray(tokens) || tokens.length === 0) return res.status(400).json({ error: 'Invalid or expired reset token' });
+
+    const resetToken = tokens[0];
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Update user password
+    await pool.query('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, resetToken.user_id]);
+
+    // Mark token as used
+    await pool.query('UPDATE password_reset_tokens SET used = TRUE WHERE id = ?', [resetToken.id]);
+
+    res.json({ message: 'Password reset successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ error: 'An error occurred while resetting your password' });
+  }
+};
+
+export default {
+  signup,
+  login,
+  getMe,
+  updateProfile,
+  logout,
+  verifyEmail,
+  resendVerification,
+  forgotPassword,
+  resetPassword,
+};
