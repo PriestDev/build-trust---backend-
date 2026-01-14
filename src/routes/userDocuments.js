@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import { authenticateToken } from '../middleware/auth.js';
 import { validate } from '../middleware/validate.js';
 import { uploadDocumentSchema } from '../validation/schemas.js';
@@ -47,9 +48,41 @@ const upload = multer({
   }
 });
 
+// Middleware to require document type in query or header BEFORE accepting file uploads
+function requireDocType(req, res, next) {
+  const docType = (req.query && req.query.type) || req.headers['x-document-type'];
+  if (docType) {
+    req.body = req.body || {};
+    req.body.type = String(docType);
+    return next();
+  }
+
+  // If no doc type provided in query/header: if multipart/form-data, drain the request
+  // body first to avoid an early response closing the socket and causing the client to abort.
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.startsWith('multipart/form-data')) {
+    // Consume and discard the stream, then respond 400 after the upload finishes
+    req.on('data', () => {});
+    req.on('end', () => {
+      // Ensure no file was written to disk in case multer started (unlikely since we didn't call next())
+      return res.status(400).json({ error: 'Document type is required' });
+    });
+    // Also handle errors on the stream
+    req.on('error', (err) => {
+      console.error('Error while draining multipart request:', err);
+      return res.status(400).json({ error: 'Document type is required' });
+    });
+    // Do not call next(); we are handling the response after drain
+    return;
+  }
+
+  // For non-multipart requests, reject immediately
+  return res.status(400).json({ error: 'Document type is required' });
+}
+
 // POST /api/users/:id/documents - upload a document
-// Note: upload middleware must run before validation since body comes from multipart/form-data
-router.post('/:id/documents', authenticateToken, upload.single('file'), validate(uploadDocumentSchema), uploadDocument);
+// Note: we check for document type before running upload middleware so we can return a 400 quickly
+router.post('/:id/documents', authenticateToken, requireDocType, upload.single('file'), validate(uploadDocumentSchema), uploadDocument);
 
 // GET /api/users/:id/documents - list documents for a user (owner)
 router.get('/:id/documents', authenticateToken, listDocuments);
