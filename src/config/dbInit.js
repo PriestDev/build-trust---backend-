@@ -9,7 +9,7 @@ export async function initializeDatabase() {
       email VARCHAR(255) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
       name VARCHAR(255) NOT NULL,
-      role ENUM('client', 'developer') DEFAULT 'client',
+      role VARCHAR(255) NOT NULL DEFAULT 'client',
       profile_image VARCHAR(500),
       bio TEXT,
       phone VARCHAR(20),
@@ -23,6 +23,9 @@ export async function initializeDatabase() {
       INDEX idx_is_active (is_active)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Ensure role column is VARCHAR(255) (idempotent)
+    await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(255) NOT NULL DEFAULT 'client'");
 
     // Create sessions table for token management
     await pool.query(`
@@ -321,6 +324,24 @@ export async function initializeDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // Create user_documents table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_documents (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        filename VARCHAR(255),
+        url VARCHAR(1000) NOT NULL,
+        size INT,
+        metadata JSON,
+        verified BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_user_id (user_id),
+        INDEX idx_type (type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     // Add additional columns to users table if they don't exist
     const additionalUserColumns = [
       'phone VARCHAR(20)',
@@ -339,6 +360,7 @@ export async function initializeDatabase() {
       'company_type VARCHAR(255)',
       'project_types TEXT',  // JSON array
       'preferred_cities TEXT',  // JSON array
+      'languages TEXT', // JSON array of spoken languages
       'budget_range VARCHAR(50)',
       'working_style VARCHAR(255)',
       'availability VARCHAR(50)',
@@ -375,6 +397,89 @@ export async function initializeDatabase() {
         throw error;
       }
     }
+
+    // Ensure sensible defaults and non-null constraints where safe
+    try {
+      // Role default
+      await pool.query("UPDATE users SET role = 'client' WHERE role IS NULL");
+      await pool.query("ALTER TABLE users MODIFY COLUMN role VARCHAR(255) NOT NULL DEFAULT 'client'");
+    } catch (err) {
+      // ignore errors (e.g. column already has desired definition)
+    }
+
+    try {
+      // Email must be not null
+      await pool.query("UPDATE users SET email = '' WHERE email IS NULL");
+      await pool.query("ALTER TABLE users MODIFY COLUMN email VARCHAR(255) NOT NULL");
+    } catch (err) {
+      // ignore
+    }
+
+    try {
+      // Boolean flags
+      await pool.query("UPDATE users SET setup_completed = 0 WHERE setup_completed IS NULL");
+      await pool.query("ALTER TABLE users MODIFY COLUMN setup_completed BOOLEAN NOT NULL DEFAULT FALSE");
+      await pool.query("UPDATE users SET email_verified = 0 WHERE email_verified IS NULL");
+      await pool.query("ALTER TABLE users MODIFY COLUMN email_verified BOOLEAN NOT NULL DEFAULT FALSE");
+    } catch (err) {
+      // ignore
+    }
+
+    try {
+      // Numeric defaults
+      await pool.query("UPDATE users SET years_experience = 0 WHERE years_experience IS NULL");
+      await pool.query("ALTER TABLE users MODIFY COLUMN years_experience INT NOT NULL DEFAULT 0");
+    } catch (err) {
+      // ignore
+    }
+
+    try {
+      // JSON/text arrays: ensure not null and set empty JSON array if missing
+      await pool.query("UPDATE users SET project_types = '[]' WHERE project_types IS NULL OR project_types = ''");
+      await pool.query("ALTER TABLE users MODIFY COLUMN project_types TEXT NOT NULL");
+
+      await pool.query("UPDATE users SET preferred_cities = '[]' WHERE preferred_cities IS NULL OR preferred_cities = ''");
+      await pool.query("ALTER TABLE users MODIFY COLUMN preferred_cities TEXT NOT NULL");
+
+      await pool.query("UPDATE users SET languages = '[]' WHERE languages IS NULL OR languages = ''");
+      await pool.query("ALTER TABLE users MODIFY COLUMN languages TEXT NOT NULL");
+
+      await pool.query("UPDATE users SET specializations = '[]' WHERE specializations IS NULL OR specializations = ''");
+      await pool.query("ALTER TABLE users MODIFY COLUMN specializations TEXT NOT NULL");
+    } catch (err) {
+      // ignore
+    }
+
+    try {
+      // Enforce not-null on key profile columns where appropriate but keep them nullable when needed
+      await pool.query("ALTER TABLE users MODIFY COLUMN company_type VARCHAR(255)");
+      await pool.query("ALTER TABLE users MODIFY COLUMN preferred_contact VARCHAR(50)");
+    } catch (err) {
+      // ignore
+    }
+
+    // Tighten user_documents columns
+    try {
+      await pool.query("ALTER TABLE user_documents MODIFY COLUMN filename VARCHAR(255) NOT NULL");
+      await pool.query("ALTER TABLE user_documents MODIFY COLUMN url VARCHAR(1000) NOT NULL");
+    } catch (err) {
+      // ignore
+    }
+
+    // Create form_submissions table for auditing form submissions
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS form_submissions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NULL,
+        route VARCHAR(255) NOT NULL,
+        method VARCHAR(10) NOT NULL,
+        status INT NOT NULL,
+        payload JSON NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_id (user_id),
+        INDEX idx_route (route)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
 
     console.log('✅ Database tables initialized successfully');
   } catch (error) {

@@ -6,5 +6,7 @@ dist/
 *.swp
 *.swo
 *~
+# Ignore uploaded files stored on local disk
+uploads/
 
 

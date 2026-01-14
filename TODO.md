@@ -98,6 +98,6 @@
 - Login redirects to intended page (not always home).
 - `apiClient.login`, `getCurrentUser`, `updateProfile` callable without errors.
 - Profile updates succeed (no SQL Unknown column).
-- Setup flows persist each step correctly; user `setup_completed` true after final save.
+- Setup flows persist each step correctly.
 - No `process is not defined` errors in browser console.
 - No 500s for profile update; server logs show successful SQL update.

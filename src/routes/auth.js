@@ -1,5 +1,7 @@
 import express from 'express';
 import * as authController from '../controllers/authController.js';
+import { validate } from '../middleware/validate.js';
+import { updateProfileSchema } from '../validation/schemas.js';
 
 const router = express.Router();
 
@@ -7,7 +9,8 @@ const router = express.Router();
 router.post('/signup', authController.signup);
 router.post('/login', authController.login);
 router.get('/me', authController.getMe);
-router.put('/me', authController.updateProfile);
+// Validate profile updates
+router.put('/me', validate(updateProfileSchema), authController.updateProfile);
 router.post('/logout', authController.logout);
 router.post('/verify-email', authController.verifyEmail);
 router.post('/resend-verification', authController.resendVerification);

@@ -7,6 +7,12 @@ export const generateVerificationToken = () => {
 
 // Reusable function to send emails through external PHP API
 const sendExternalEmail = async (toEmail, subject, message) => {
+  // During tests, avoid external network calls and noisy logs
+  if (process.env.NODE_ENV === 'test') {
+    // Simulate a fast successful send
+    return true;
+  }
+
   try {
     const response = await fetch(
       "https://gitaalliedtech.com/clocklyApp/clockly_email.php",

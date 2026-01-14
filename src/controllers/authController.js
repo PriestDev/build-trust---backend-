@@ -24,6 +24,17 @@ export const signup = async (req, res) => {
     const validatedData = signupSchema.parse(req.body);
     const { email, password, name, role } = validatedData;
 
+    // Check intent (e.g. /auth?intent=developer-setup) — accept either query or body
+    const intentParam = req.query && req.query.intent ? String(req.query.intent).toLowerCase() : (req.body && req.body.intent ? String(req.body.intent).toLowerCase() : null);
+
+    // Decide final role: developer if intent indicates developer setup, otherwise use body role or default to client
+    const finalRole = intentParam === 'developer-setup' ? 'developer' : (role || 'client');
+
+    // Validate finalRole to match DB enum
+    if (!['client', 'developer'].includes(finalRole)) {
+      return res.status(400).json({ error: 'Invalid role specified' });
+    }
+
     // Check if user already exists
     const [existingUsers] = await pool.query(
       'SELECT id FROM users WHERE email = ?',
@@ -42,10 +53,10 @@ export const signup = async (req, res) => {
     // Create user
     const [result] = await pool.query(
       'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, FALSE)',
-      [email, hashedPassword, name || null, role || 'client']
+      [email, hashedPassword, name || null, finalRole]
     );
 
-    const userId = result.insertId;
+    const userId = result.insertId;    
 
     // Generate verification token
     const verificationToken = generateVerificationToken();
@@ -61,11 +72,11 @@ export const signup = async (req, res) => {
     // Send verification email
     await sendVerificationEmail(email, verificationToken);
 
-    // 🔑 Create JWT for session
+    // 🔑 Create JWT for session (include final role)
     const token = jwt.sign(
-      { userId: userId, email, role },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
+      { userId: userId, email, role: finalRole },
+      process.env.JWT_SECRET || 'your_secret_key',
+      { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
 
     // Store session in DB
@@ -85,7 +96,8 @@ export const signup = async (req, res) => {
         id: userId,
         email,
         name: name || null,
-        role: role || 'client',
+        role: finalRole,
+        setup_completed: false,
         email_verified: false,
       },
     });
@@ -109,7 +121,7 @@ export const login = async (req, res) => {
 
     // Find user
     const [users] = await pool.query(
-      'SELECT id, email, password, name, role FROM users WHERE email = ?',
+      'SELECT id, email, password, name, role, email_verified, setup_completed FROM users WHERE email = ?',
       [email]
     );
 
@@ -126,9 +138,9 @@ export const login = async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Generate JWT token
+    // Generate JWT token (include role)
     const token = jwt.sign(
-      { userId: user.id, email: user.email },
+      { userId: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET || 'your_secret_key',
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
@@ -147,6 +159,8 @@ export const login = async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
+        email_verified: Boolean(user.email_verified || false),
+        setup_completed: Boolean(user.setup_completed || false),
       },
     });
   } catch (error) {
@@ -178,7 +192,7 @@ export const getMe = async (req, res) => {
     }
 
     // Get user data
-    const [users] = await pool.query('SELECT id, email, name, role, created_at, email_verified FROM users WHERE id = ?', [decoded.userId]);
+    const [users] = await pool.query('SELECT id, email, name, role, created_at, email_verified, setup_completed FROM users WHERE id = ?', [decoded.userId]);
 
     if (!Array.isArray(users) || users.length === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -186,7 +200,7 @@ export const getMe = async (req, res) => {
 
     const user = users[0];
 
-    res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, created_at: user.created_at, email_verified: user.email_verified || false } });
+    res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, created_at: user.created_at, email_verified: user.email_verified || false, setup_completed: Boolean(user.setup_completed || false) } });
   } catch (error) {
     console.error('Get user error:', error);
     res.status(401).json({ error: 'Invalid token' });
@@ -203,19 +217,42 @@ export const updateProfile = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
     const userId = decoded.userId || decoded.id; // Use actual ID from token
 
-    const { name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations } = req.body;
+    const { name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations, languages } = req.body;
 
-    await pool.query(
-      `UPDATE users SET 
+    // Normalize array inputs to JSON strings for storage if arrays are provided
+    const projectTypesValue = Array.isArray(project_types) ? JSON.stringify(project_types) : project_types;
+    const preferredCitiesValue = Array.isArray(preferred_cities) ? JSON.stringify(preferred_cities) : preferred_cities;
+    const specializationsValue = Array.isArray(specializations) ? JSON.stringify(specializations) : specializations;
+    const languagesValue = Array.isArray(languages) ? JSON.stringify(languages) : languages;
+
+    // Determine if profile is complete (all main fields provided and non-empty)
+    const requiredFields = [name, bio, company_type, projectTypesValue, preferredCitiesValue, budget_range, working_style, availability, specializationsValue];
+    const isProfileComplete = requiredFields.every(f => f !== undefined && f !== null && String(f).trim() !== '' && String(f) !== '[]');
+
+    // Allow client to force setup completion (e.g., final submit from setup UI)
+    const forceSetupComplete = req.body && req.body.setup_completed === true;
+
+    // Build dynamic query: include setup_completed if profile is complete OR forcibly requested
+    let updateSql = `UPDATE users SET 
         name = ?, bio = ?, phone = ?, location = ?, preferred_contact = ?, 
         company_type = ?, years_experience = ?, project_types = ?, preferred_cities = ?, 
-        budget_range = ?, working_style = ?, availability = ?, specializations = ?, 
-        setup_completed = TRUE 
-      WHERE id = ?`,
-      [name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations, userId]
-    );
+        budget_range = ?, working_style = ?, availability = ?, specializations = ?, languages = ? `;
+    const params = [name, bio, phone, location, preferred_contact, company_type, years_experience, projectTypesValue, preferredCitiesValue, budget_range, working_style, availability, specializationsValue, languagesValue];
 
-    res.json({ message: 'Profile updated successfully' });
+    if (isProfileComplete || forceSetupComplete) {
+      updateSql += `, setup_completed = TRUE `;
+    }
+
+    updateSql += `WHERE id = ?`;
+    params.push(userId);
+
+    await pool.query(updateSql, params);
+
+    // Return updated user data
+    const [updatedUsers] = await pool.query('SELECT id, email, name, role, bio, phone, location, company_type, years_experience, project_types, preferred_cities, languages, budget_range, working_style, availability, specializations, setup_completed FROM users WHERE id = ?', [userId]);
+    const updatedUser = (Array.isArray(updatedUsers) && updatedUsers[0]) ? updatedUsers[0] : null;
+
+    res.json({ message: 'Profile updated successfully', user: updatedUser });
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'Invalid token' });
