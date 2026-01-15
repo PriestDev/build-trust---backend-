@@ -484,7 +484,7 @@ export async function initializeDatabase() {
     try {
       const [existingAdmin] = await pool.query(
         'SELECT id FROM users WHERE email = ? AND role = ?',
-        ['admin@admin.g.c', 'admin']
+        ['admin@gmail.com', 'admin']
       );
 
       if (!Array.isArray(existingAdmin) || existingAdmin.length === 0) {
@@ -493,10 +493,10 @@ export async function initializeDatabase() {
         
         await pool.query(
           'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, TRUE)',
-          ['admin@admin.g.c', hashedPassword, 'Admin', 'admin']
+          ['admin@gmail.com', hashedPassword, 'Admin', 'admin']
         );
         
-        console.log('✅ Default admin user created: admin@admin.g.c');
+        console.log('✅ Default admin user created: admin@gmail.com');
       } else {
         console.log('ℹ️ Default admin user already exists');
       }
