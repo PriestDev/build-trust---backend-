@@ -50,7 +50,7 @@ const pool = mysql.createPool({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'buildtrust',
   waitForConnections: true,
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '10'),
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '3'),
   queueLimit: 0,
   connectTimeout: parseInt(process.env.DB_CONNECT_TIMEOUT || '10000'),
   // NOTE: mysql2 currently warns about unknown connection options passed to Connection
