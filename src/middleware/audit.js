@@ -3,6 +3,7 @@ import pool from '../config/database.js';
 // Background queue for audit logs to avoid blocking requests
 const auditQueue = [];
 let isProcessing = false;
+const QUEUE_PROCESS_DELAY = 1000; // Wait 1 second before processing queue
 
 async function processAuditQueue() {
   if (isProcessing || auditQueue.length === 0) return;
@@ -11,12 +12,17 @@ async function processAuditQueue() {
   while (auditQueue.length > 0) {
     const auditData = auditQueue.shift();
     try {
+      // Use setTimeout to avoid blocking, and let connection pool have time to release
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       await pool.query(
         'INSERT INTO form_submissions (user_id, route, method, status, payload) VALUES (?, ?, ?, ?, ?)',
         [auditData.userId, auditData.route, auditData.method, auditData.statusCode, auditData.payload]
       );
     } catch (err) {
-      console.error('Failed to write audit log', err);
+      // Silently log audit failures - they're not critical
+      console.error('Failed to write audit log (non-critical):', err.code || err.message);
+      // Don't re-queue failed audits to avoid infinite loops
     }
   }
 
@@ -42,8 +48,8 @@ export const auditSubmission = (req, res, next) => {
       payload,
     });
 
-    // Process queue asynchronously (non-blocking)
-    setImmediate(processAuditQueue);
+    // Process queue after delay to allow connections to release
+    setTimeout(processAuditQueue, QUEUE_PROCESS_DELAY);
   });
 
   next();
