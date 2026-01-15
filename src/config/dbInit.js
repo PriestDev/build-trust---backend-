@@ -507,12 +507,51 @@ export async function initializeDatabase() {
         route VARCHAR(255) NOT NULL,
         method VARCHAR(10) NOT NULL,
         status INT NOT NULL,
-        payload JSON NULL,
+        request_body JSON NULL,
+        request_query JSON NULL,
+        response_body JSON NULL,
+        user_agent VARCHAR(500) NULL,
+        ip_address VARCHAR(45) NULL,
+        email VARCHAR(255) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_user_id (user_id),
-        INDEX idx_route (route)
+        INDEX idx_route (route),
+        INDEX idx_method (method),
+        INDEX idx_created_at (created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Add missing columns to form_submissions if they don't exist (migration)
+    try {
+      await pool.query(`ALTER TABLE form_submissions ADD COLUMN request_body JSON NULL`);
+    } catch (e) {
+      // Column already exists
+    }
+    try {
+      await pool.query(`ALTER TABLE form_submissions ADD COLUMN request_query JSON NULL`);
+    } catch (e) {
+      // Column already exists
+    }
+    try {
+      await pool.query(`ALTER TABLE form_submissions ADD COLUMN response_body JSON NULL`);
+    } catch (e) {
+      // Column already exists
+    }
+    try {
+      await pool.query(`ALTER TABLE form_submissions ADD COLUMN user_agent VARCHAR(500) NULL`);
+    } catch (e) {
+      // Column already exists
+    }
+    try {
+      await pool.query(`ALTER TABLE form_submissions ADD COLUMN ip_address VARCHAR(45) NULL`);
+    } catch (e) {
+      // Column already exists
+    }
+    try {
+      await pool.query(`ALTER TABLE form_submissions ADD COLUMN email VARCHAR(255) NULL`);
+    } catch (e) {
+      // Column already exists
+    }
 
     // Create default admin user if it doesn't exist
     try {
