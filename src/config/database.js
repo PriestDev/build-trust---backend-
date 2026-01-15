@@ -67,22 +67,25 @@ pool.on && pool.on('error', (err) => {
   // Consider additional remediation here (alerting / recreating the pool)
 });
 
-// Test database connection and log server charset settings to aid debugging
-pool.getConnection()
-  .then(async (connection) => {
-    try {
-      console.log('✅ MySQL database connected successfully');
-      const [rows] = await connection.query("SELECT @@character_set_client as client, @@character_set_connection as connection, @@character_set_results as results");
-      console.log('MySQL character sets:', rows[0]);
-    } catch (err) {
-      console.warn('Warning reading server charset variables:', err.message);
-    } finally {
-      connection.release();
-    }
-  })
-  .catch((error) => {
-    console.error('❌ MySQL database connection failed:', error);
-    console.error(error);
-  });
+// Skip test connection on Render due to 5-connection limit
+// Each connection attempt uses a precious connection slot
+if (process.env.NODE_ENV !== 'production') {
+  // Test database connection only in non-production environments
+  pool.getConnection()
+    .then(async (connection) => {
+      try {
+        console.log('✅ MySQL database connected successfully');
+        const [rows] = await connection.query("SELECT @@character_set_client as client, @@character_set_connection as connection, @@character_set_results as results");
+        console.log('MySQL character sets:', rows[0]);
+      } catch (err) {
+        console.warn('Warning reading server charset variables:', err.message);
+      } finally {
+        connection.release();
+      }
+    })
+    .catch((error) => {
+      console.error('❌ MySQL database connection failed:', error);
+    });
+}
 
 export default pool;

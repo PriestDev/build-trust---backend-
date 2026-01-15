@@ -19,6 +19,22 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+// Retry helper for connection limit errors
+async function retryWithBackoff(fn, maxRetries = 3) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err.code === 'ER_USER_LIMIT_REACHED' && i < maxRetries - 1) {
+        // Wait before retrying: 500ms * (attempt + 1)
+        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export const signup = async (req, res) => {
   try {
     const validatedData = signupSchema.parse(req.body);
@@ -35,10 +51,12 @@ export const signup = async (req, res) => {
       return res.status(400).json({ error: 'Invalid role specified' });
     }
 
-    // Check if user already exists
-    const [existingUsers] = await pool.query(
-      'SELECT id FROM users WHERE email = ?',
-      [email]
+    // Check if user already exists (with retry)
+    const [existingUsers] = await retryWithBackoff(() =>
+      pool.query(
+        'SELECT id FROM users WHERE email = ?',
+        [email]
+      )
     );
 
     if (Array.isArray(existingUsers) && existingUsers.length > 0) {
@@ -50,10 +68,12 @@ export const signup = async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
-    const [result] = await pool.query(
-      'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, FALSE)',
-      [email, hashedPassword, name || null, finalRole]
+    // Create user (with retry)
+    const [result] = await retryWithBackoff(() =>
+      pool.query(
+        'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, FALSE)',
+        [email, hashedPassword, name || null, finalRole]
+      )
     );
 
     const userId = result.insertId;    
@@ -63,10 +83,12 @@ export const signup = async (req, res) => {
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
 
-    // Store verification token
-    await pool.query(
-      'INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [userId, verificationToken, expiresAt]
+    // Store verification token (with retry)
+    await retryWithBackoff(() =>
+      pool.query(
+        'INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+        [userId, verificationToken, expiresAt]
+      )
     );
 
     // Send verification email
@@ -83,10 +105,12 @@ export const signup = async (req, res) => {
     const sessionExpiresAt = new Date();
     sessionExpiresAt.setDate(sessionExpiresAt.getDate() + 7); // 7 days
 
-    // Insert session
-    await pool.query(
-      'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)',
-      [userId, token, sessionExpiresAt]
+    // Insert session (with retry)
+    await retryWithBackoff(() =>
+      pool.query(
+        'INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)',
+        [userId, token, sessionExpiresAt]
+      )
     );
 
     res.status(201).json({
