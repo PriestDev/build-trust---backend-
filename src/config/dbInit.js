@@ -429,9 +429,8 @@ export async function initializeDatabase() {
     }
 
     try {
-      // Numeric defaults
-      await pool.query("UPDATE users SET years_experience = 0 WHERE years_experience IS NULL");
-      await pool.query("ALTER TABLE users MODIFY COLUMN years_experience INT NOT NULL DEFAULT 0");
+      // Numeric defaults - allow years_experience to be nullable since it's optional during setup
+      await pool.query("ALTER TABLE users MODIFY COLUMN years_experience INT NULL");
     } catch (err) {
       // ignore
     }
