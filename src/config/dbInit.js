@@ -346,6 +346,40 @@ export async function initializeDatabase() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    // Add portfolio fields to projects table for developer portfolios
+    try {
+      await pool.query(`ALTER TABLE projects ADD COLUMN type VARCHAR(50)`);
+    } catch (error) {
+      if (!(error.message.includes('Duplicate column name'))) {
+        throw error;
+      }
+    }
+
+    try {
+      await pool.query(`ALTER TABLE projects ADD COLUMN budget VARCHAR(50)`);
+    } catch (error) {
+      if (!(error.message.includes('Duplicate column name'))) {
+        throw error;
+      }
+    }
+
+    // Create project_media table for portfolio project media (images, videos)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_media (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        project_id INT NOT NULL,
+        type VARCHAR(50) DEFAULT 'media',
+        url VARCHAR(1000) NOT NULL,
+        filename VARCHAR(255),
+        size INT,
+        mime_type VARCHAR(100),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        INDEX idx_project_id (project_id),
+        INDEX idx_type (type)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     // Add additional columns to users table if they don't exist
     const additionalUserColumns = [
       'phone VARCHAR(20)',

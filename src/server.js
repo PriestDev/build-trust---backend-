@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import authRoutes from './routes/auth.js';
 import userDocumentsRoutes from './routes/userDocuments.js';
+import projectsRoutes from './routes/projects.js';
 import { initializeDatabase } from './config/dbInit.js';
 import fs from 'fs';
 import path from 'path';
@@ -51,6 +52,7 @@ app.use(auditSubmission);
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userDocumentsRoutes);
+app.use('/api/projects', projectsRoutes);
 
 import multer from 'multer';
 
