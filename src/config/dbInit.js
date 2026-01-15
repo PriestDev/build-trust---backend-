@@ -489,7 +489,7 @@ export async function initializeDatabase() {
 
       if (!Array.isArray(existingAdmin) || existingAdmin.length === 0) {
         // Hash the default admin password
-        const hashedPassword = await bcrypt.hash('Admin12345', 10);
+        const hashedPassword = await bcrypt.hash('12345', 10);
         
         await pool.query(
           'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, TRUE)',
