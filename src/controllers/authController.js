@@ -38,14 +38,38 @@ async function retryWithBackoff(fn, maxRetries = 5) {
 
 export const signup = async (req, res) => {
   try {
+    console.log('📝 SIGNUP REQUEST RECEIVED:', {
+      timestamp: new Date().toISOString(),
+      email: req.body?.email,
+      name: req.body?.name,
+      role: req.body?.role,
+      intent: req.query?.intent || req.body?.intent,
+      headers: {
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent']?.substring(0, 50) + '...'
+      }
+    });
+
     const validatedData = signupSchema.parse(req.body);
     const { email, password, name, role } = validatedData;
+
+    console.log('✅ VALIDATION PASSED:', {
+      email,
+      nameProvided: !!name,
+      role
+    });
 
     // Check intent (e.g. /auth?intent=developer-setup) — accept either query or body
     const intentParam = req.query && req.query.intent ? String(req.query.intent).toLowerCase() : (req.body && req.body.intent ? String(req.body.intent).toLowerCase() : null);
 
     // Decide final role: developer if intent indicates developer setup, otherwise use body role or default to client
     const finalRole = intentParam === 'developer-setup' ? 'developer' : (role || 'client');
+
+    console.log('🎯 ROLE DETERMINATION:', {
+      intentParam,
+      providedRole: role,
+      finalRole
+    });
 
     // Validate finalRole to match DB enum
     if (!['client', 'developer'].includes(finalRole)) {
@@ -61,6 +85,7 @@ export const signup = async (req, res) => {
     );
 
     if (Array.isArray(existingUsers) && existingUsers.length > 0) {
+      console.log('⚠️ USER ALREADY EXISTS:', { email });
       return res.status(400).json({
         error: 'An account with this email already exists',
       });
@@ -70,6 +95,14 @@ export const signup = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user (with retry)
+    console.log('💾 INSERTING USER INTO DATABASE:', {
+      email,
+      nameValue: name || null,
+      finalRole,
+      emailVerified: false,
+      defaultArrays: { project_types: '[]', preferred_cities: '[]', languages: '[]', specializations: '[]' }
+    });
+
     const [result] = await retryWithBackoff(() =>
       pool.query(
         'INSERT INTO users (email, password, name, role, email_verified, project_types, preferred_cities, languages, specializations) VALUES (?, ?, ?, ?, FALSE, ?, ?, ?, ?)',
@@ -78,11 +111,18 @@ export const signup = async (req, res) => {
     );
 
     const userId = result.insertId;    
+    console.log('✨ USER CREATED SUCCESSFULLY:', { userId, email, finalRole });    
 
     // Generate verification token
     const verificationToken = generateVerificationToken();
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
+
+    console.log('📧 GENERATING VERIFICATION TOKEN:', {
+      userId,
+      tokenLength: verificationToken.length,
+      expiresAt
+    });
 
     // Store verification token (with retry)
     await retryWithBackoff(() =>
@@ -92,8 +132,12 @@ export const signup = async (req, res) => {
       )
     );
 
+    console.log('✅ VERIFICATION TOKEN STORED');
+
     // Send verification email
+    console.log('📬 SENDING VERIFICATION EMAIL TO:', email);
     await sendVerificationEmail(email, verificationToken);
+    console.log('✅ VERIFICATION EMAIL SENT');
 
     // 🔑 Create JWT for session (include final role)
     const token = jwt.sign(
@@ -101,6 +145,11 @@ export const signup = async (req, res) => {
       process.env.JWT_SECRET || 'your_secret_key',
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
+
+    console.log('🔐 JWT TOKEN CREATED:', {
+      userId,
+      expiresIn: process.env.JWT_EXPIRES_IN || '7d'
+    });
 
     // Store session in DB
     const sessionExpiresAt = new Date();
@@ -113,6 +162,15 @@ export const signup = async (req, res) => {
         [userId, token, sessionExpiresAt]
       )
     );
+
+    console.log('✅ SESSION STORED IN DATABASE');
+
+    console.log('🎉 SIGNUP COMPLETE:', {
+      userId,
+      email,
+      role: finalRole,
+      timestamp: new Date().toISOString()
+    });
 
     res.status(201).json({
       message: 'Account created successfully. Please check your email to verify your account.',
@@ -128,13 +186,23 @@ export const signup = async (req, res) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
+      console.error('❌ VALIDATION ERROR:', {
+        timestamp: new Date().toISOString(),
+        errors: error.errors.map(e => ({ path: e.path.join('.'), message: e.message }))
+      });
       return res.status(400).json({
         error: 'Validation error',
         details: error.errors,
       });
     }
 
-    console.error('Signup error:', error);
+    console.error('❌ SIGNUP ERROR:', {
+      timestamp: new Date().toISOString(),
+      errorCode: error?.code,
+      errorMessage: error?.message,
+      email: req.body?.email,
+      stack: error?.stack
+    });
     res.status(500).json({ error: 'An error occurred while creating your account' });
   }
 };
