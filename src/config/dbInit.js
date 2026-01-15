@@ -1,3 +1,4 @@
+import bcrypt from 'bcryptjs';
 import pool from './database.js';
 
 export async function initializeDatabase() {
@@ -478,6 +479,31 @@ export async function initializeDatabase() {
         INDEX idx_route (route)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    // Create default admin user if it doesn't exist
+    try {
+      const [existingAdmin] = await pool.query(
+        'SELECT id FROM users WHERE email = ? AND role = ?',
+        ['admin@admin.g.c', 'admin']
+      );
+
+      if (!Array.isArray(existingAdmin) || existingAdmin.length === 0) {
+        // Hash the default admin password
+        const hashedPassword = await bcrypt.hash('Admin12345', 10);
+        
+        await pool.query(
+          'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, TRUE)',
+          ['admin@admin.g.c', hashedPassword, 'Admin', 'admin']
+        );
+        
+        console.log('✅ Default admin user created: admin@admin.g.c');
+      } else {
+        console.log('ℹ️ Default admin user already exists');
+      }
+    } catch (adminError) {
+      console.error('⚠️ Error creating default admin user:', adminError.message);
+      // Don't throw - let initialization continue even if admin creation fails
+    }
 
     console.log('✅ Database tables initialized successfully');
   } catch (error) {
