@@ -281,9 +281,58 @@ export const updateProfile = async (req, res) => {
     const languagesValue = Array.isArray(languages) ? JSON.stringify(languages) : (languages || '[]');
     const yearsExperienceValue = years_experience !== undefined && years_experience !== null ? years_experience : 0;
 
-    // Determine if profile is complete (all main fields provided and non-empty)
-    const requiredFields = [name, bio, company_type, projectTypesValue, preferredCitiesValue, budget_range, working_style, availability, specializationsValue];
-    const isProfileComplete = requiredFields.every(f => f !== undefined && f !== null && String(f).trim() !== '' && String(f) !== '[]');
+    // Get user's role to determine which fields are required for completion
+    const [userRows] = await pool.query('SELECT role FROM users WHERE id = ?', [userId]);
+    const userRole = userRows && userRows[0] ? userRows[0].role : null;
+
+    // Determine if profile is complete based on user role
+    let isProfileComplete = false;
+    
+    if (userRole === 'client') {
+      // Client required fields: name, phone, location, bio, preferred_contact
+      const clientRequiredFields = [name, phone, location, bio, preferred_contact];
+      isProfileComplete = clientRequiredFields.every(f => 
+        f !== undefined && f !== null && String(f).trim() !== ''
+      );
+      console.log('🔍 CLIENT PROFILE COMPLETION CHECK:', {
+        name: !!name, 
+        phone: !!phone, 
+        location: !!location, 
+        bio: !!bio, 
+        preferred_contact: !!preferred_contact,
+        isComplete: isProfileComplete
+      });
+    } else if (userRole === 'developer') {
+      // Developer required fields: name, bio, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations
+      const developerRequiredFields = [
+        name, 
+        bio, 
+        company_type, 
+        yearsExperienceValue, 
+        projectTypesValue, 
+        preferredCitiesValue, 
+        budget_range, 
+        working_style, 
+        availability, 
+        specializationsValue
+      ];
+      isProfileComplete = developerRequiredFields.every(f => 
+        f !== undefined && f !== null && String(f).trim() !== '' && String(f) !== '[]'
+      );
+      console.log('🔍 DEVELOPER PROFILE COMPLETION CHECK:', {
+        name: !!name,
+        bio: !!bio,
+        company_type: !!company_type,
+        years_experience: !!yearsExperienceValue,
+        project_types: projectTypesValue !== '[]',
+        preferred_cities: preferredCitiesValue !== '[]',
+        budget_range: !!budget_range,
+        working_style: !!working_style,
+        availability: !!availability,
+        specializations: specializationsValue !== '[]',
+        isComplete: isProfileComplete
+      });
+    }
 
     // Allow client to force setup completion (e.g., final submit from setup UI)
     const forceSetupComplete = req.body && req.body.setup_completed === true;
@@ -297,6 +346,17 @@ export const updateProfile = async (req, res) => {
 
     if (isProfileComplete || forceSetupComplete) {
       updateSql += `, setup_completed = TRUE `;
+      console.log('✏️ SETTING SETUP_COMPLETED = TRUE:', {
+        reason: isProfileComplete ? 'All required fields provided' : 'Force completion flag set',
+        userRole,
+        timestamp: new Date().toISOString()
+      });
+    } else {
+      console.log('⏳ SETUP NOT YET COMPLETE:', {
+        userRole,
+        missingFields: true,
+        timestamp: new Date().toISOString()
+      });
     }
 
     updateSql += `WHERE id = ?`;
@@ -318,8 +378,9 @@ export const updateProfile = async (req, res) => {
     console.log('✅ PROFILE SAVED TO DATABASE:', {
       timestamp: new Date().toISOString(),
       userId,
-      updatedUser,
-      setupCompleted: updatedUser?.setup_completed
+      role: updatedUser?.role,
+      setupCompleted: updatedUser?.setup_completed,
+      updatedUser
     });
 
     res.json({ message: 'Profile updated successfully', user: updatedUser });
