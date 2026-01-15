@@ -265,6 +265,12 @@ export const updateProfile = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
     const userId = decoded.userId || decoded.id; // Use actual ID from token
 
+    console.log('📥 BACKEND RECEIVED PROFILE DATA:', {
+      timestamp: new Date().toISOString(),
+      userId,
+      requestBody: req.body
+    });
+
     const { name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations, languages } = req.body;
 
     // Normalize array inputs to JSON strings for storage if arrays are provided
@@ -296,11 +302,25 @@ export const updateProfile = async (req, res) => {
     updateSql += `WHERE id = ?`;
     params.push(userId);
 
+    console.log('💾 SAVING TO DATABASE:', {
+      timestamp: new Date().toISOString(),
+      userId,
+      query: updateSql,
+      values: params.slice(0, -1) // exclude userId from logging to avoid confusion
+    });
+
     await pool.query(updateSql, params);
 
     // Return updated user data
     const [updatedUsers] = await pool.query('SELECT id, email, name, role, bio, phone, location, company_type, years_experience, project_types, preferred_cities, languages, budget_range, working_style, availability, specializations, setup_completed FROM users WHERE id = ?', [userId]);
     const updatedUser = (Array.isArray(updatedUsers) && updatedUsers[0]) ? updatedUsers[0] : null;
+
+    console.log('✅ PROFILE SAVED TO DATABASE:', {
+      timestamp: new Date().toISOString(),
+      userId,
+      updatedUser,
+      setupCompleted: updatedUser?.setup_completed
+    });
 
     res.json({ message: 'Profile updated successfully', user: updatedUser });
   } catch (error) {
