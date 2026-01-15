@@ -361,13 +361,13 @@ export async function initializeDatabase() {
       'setup_completed BOOLEAN DEFAULT FALSE',
       'preferred_contact VARCHAR(50)',
       'company_type VARCHAR(255)',
-      'project_types TEXT',  // JSON array
-      'preferred_cities TEXT',  // JSON array
-      'languages TEXT', // JSON array of spoken languages
+      'project_types TEXT DEFAULT "[]"',  // JSON array
+      'preferred_cities TEXT DEFAULT "[]"',  // JSON array
+      'languages TEXT DEFAULT "[]"', // JSON array of spoken languages
       'budget_range VARCHAR(50)',
       'working_style VARCHAR(255)',
       'availability VARCHAR(50)',
-      'specializations TEXT'  // JSON array
+      'specializations TEXT DEFAULT "[]"'  // JSON array
     ];
 
     for (const column of additionalUserColumns) {
