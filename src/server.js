@@ -42,9 +42,7 @@ if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
 // Initialize database
-// Disabled on Render due to 5-connection limit
-// Tables are already created, no need to recreate on every startup
-// initializeDatabase().catch(console.error);
+initializeDatabase().catch(console.error);
 
 import { auditSubmission } from './middleware/audit.js';
 // Audit submissions (non-GET requests)
