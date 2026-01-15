@@ -72,8 +72,8 @@ export const signup = async (req, res) => {
     // Create user (with retry)
     const [result] = await retryWithBackoff(() =>
       pool.query(
-        'INSERT INTO users (email, password, name, role, email_verified) VALUES (?, ?, ?, ?, FALSE)',
-        [email, hashedPassword, name || null, finalRole]
+        'INSERT INTO users (email, password, name, role, email_verified, project_types, preferred_cities, languages, specializations) VALUES (?, ?, ?, ?, FALSE, ?, ?, ?, ?)',
+        [email, hashedPassword, name || null, finalRole, '[]', '[]', '[]', '[]']
       )
     );
 

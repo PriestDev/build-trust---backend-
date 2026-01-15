@@ -361,13 +361,13 @@ export async function initializeDatabase() {
       'setup_completed BOOLEAN DEFAULT FALSE',
       'preferred_contact VARCHAR(50)',
       'company_type VARCHAR(255)',
-      'project_types TEXT DEFAULT "[]"',  // JSON array
-      'preferred_cities TEXT DEFAULT "[]"',  // JSON array
-      'languages TEXT DEFAULT "[]"', // JSON array of spoken languages
+      'project_types TEXT',  // JSON array
+      'preferred_cities TEXT',  // JSON array
+      'languages TEXT', // JSON array of spoken languages
       'budget_range VARCHAR(50)',
       'working_style VARCHAR(255)',
       'availability VARCHAR(50)',
-      'specializations TEXT DEFAULT "[]"'  // JSON array
+      'specializations TEXT'  // JSON array
     ];
 
     for (const column of additionalUserColumns) {
@@ -437,18 +437,14 @@ export async function initializeDatabase() {
     }
 
     try {
-      // JSON/text arrays: ensure not null and set empty JSON array if missing
+      // JSON/text arrays: set empty JSON array if missing (TEXT columns cannot have defaults)
       await pool.query("UPDATE users SET project_types = '[]' WHERE project_types IS NULL OR project_types = ''");
-      await pool.query("ALTER TABLE users MODIFY COLUMN project_types TEXT NOT NULL");
 
       await pool.query("UPDATE users SET preferred_cities = '[]' WHERE preferred_cities IS NULL OR preferred_cities = ''");
-      await pool.query("ALTER TABLE users MODIFY COLUMN preferred_cities TEXT NOT NULL");
 
       await pool.query("UPDATE users SET languages = '[]' WHERE languages IS NULL OR languages = ''");
-      await pool.query("ALTER TABLE users MODIFY COLUMN languages TEXT NOT NULL");
 
       await pool.query("UPDATE users SET specializations = '[]' WHERE specializations IS NULL OR specializations = ''");
-      await pool.query("ALTER TABLE users MODIFY COLUMN specializations TEXT NOT NULL");
     } catch (err) {
       // ignore
     }
