@@ -20,14 +20,15 @@ const loginSchema = z.object({
 });
 
 // Retry helper for connection limit errors
-async function retryWithBackoff(fn, maxRetries = 3) {
+async function retryWithBackoff(fn, maxRetries = 5) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn();
     } catch (err) {
       if (err.code === 'ER_USER_LIMIT_REACHED' && i < maxRetries - 1) {
-        // Wait before retrying: 500ms * (attempt + 1)
-        await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+        // Wait before retrying: 1000ms * (2^attempt) with jitter
+        const waitMs = 1000 * Math.pow(2, i) + Math.random() * 500;
+        await new Promise(resolve => setTimeout(resolve, waitMs));
         continue;
       }
       throw err;
