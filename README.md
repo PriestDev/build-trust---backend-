@@ -38,6 +38,16 @@ npm run dev
 
 The server will automatically create the required tables on first run.
 
+### Default Super Admin Account
+
+A default super admin account is automatically created during database initialization if it doesn't already exist:
+
+**Login Credentials:**
+- **Email:** `admin@gmail.com`
+- **Password:** `12345`
+
+**Important:** Change these credentials immediately in a production environment for security reasons.
+
 ## API Endpoints
 
 ### Authentication
