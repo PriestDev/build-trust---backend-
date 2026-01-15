@@ -1,5 +1,28 @@
 import pool from '../config/database.js';
 
+// Background queue for audit logs to avoid blocking requests
+const auditQueue = [];
+let isProcessing = false;
+
+async function processAuditQueue() {
+  if (isProcessing || auditQueue.length === 0) return;
+  isProcessing = true;
+
+  while (auditQueue.length > 0) {
+    const auditData = auditQueue.shift();
+    try {
+      await pool.query(
+        'INSERT INTO form_submissions (user_id, route, method, status, payload) VALUES (?, ?, ?, ?, ?)',
+        [auditData.userId, auditData.route, auditData.method, auditData.statusCode, auditData.payload]
+      );
+    } catch (err) {
+      console.error('Failed to write audit log', err);
+    }
+  }
+
+  isProcessing = false;
+}
+
 export const auditSubmission = (req, res, next) => {
   // Only track non-GET requests (forms/submissions)
   if (req.method === 'GET') return next();
@@ -9,18 +32,18 @@ export const auditSubmission = (req, res, next) => {
   const method = req.method;
   const payload = req.body ? JSON.stringify(req.body) : null;
 
-  res.on('finish', async () => {
-    try {
-      await pool.query('INSERT INTO form_submissions (user_id, route, method, status, payload) VALUES (?, ?, ?, ?, ?)', [
-        userId,
-        route,
-        method,
-        res.statusCode,
-        payload,
-      ]);
-    } catch (err) {
-      console.error('Failed to write audit log', err);
-    }
+  res.on('finish', () => {
+    // Queue the audit log instead of awaiting it
+    auditQueue.push({
+      userId,
+      route,
+      method,
+      statusCode: res.statusCode,
+      payload,
+    });
+
+    // Process queue asynchronously (non-blocking)
+    setImmediate(processAuditQueue);
   });
 
   next();
