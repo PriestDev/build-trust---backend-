@@ -313,10 +313,12 @@ export const updateProfile = async (req, res) => {
     const { name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations, languages } = req.body;
 
     // Normalize array inputs to JSON strings for storage if arrays are provided
-    const projectTypesValue = Array.isArray(project_types) ? JSON.stringify(project_types) : project_types;
-    const preferredCitiesValue = Array.isArray(preferred_cities) ? JSON.stringify(preferred_cities) : preferred_cities;
-    const specializationsValue = Array.isArray(specializations) ? JSON.stringify(specializations) : specializations;
-    const languagesValue = Array.isArray(languages) ? JSON.stringify(languages) : languages;
+    // Provide default values for optional fields to avoid NULL constraint violations
+    const projectTypesValue = Array.isArray(project_types) ? JSON.stringify(project_types) : (project_types || '[]');
+    const preferredCitiesValue = Array.isArray(preferred_cities) ? JSON.stringify(preferred_cities) : (preferred_cities || '[]');
+    const specializationsValue = Array.isArray(specializations) ? JSON.stringify(specializations) : (specializations || '[]');
+    const languagesValue = Array.isArray(languages) ? JSON.stringify(languages) : (languages || '[]');
+    const yearsExperienceValue = years_experience !== undefined && years_experience !== null ? years_experience : 0;
 
     // Determine if profile is complete (all main fields provided and non-empty)
     const requiredFields = [name, bio, company_type, projectTypesValue, preferredCitiesValue, budget_range, working_style, availability, specializationsValue];
@@ -330,7 +332,7 @@ export const updateProfile = async (req, res) => {
         name = ?, bio = ?, phone = ?, location = ?, preferred_contact = ?, 
         company_type = ?, years_experience = ?, project_types = ?, preferred_cities = ?, 
         budget_range = ?, working_style = ?, availability = ?, specializations = ?, languages = ? `;
-    const params = [name, bio, phone, location, preferred_contact, company_type, years_experience, projectTypesValue, preferredCitiesValue, budget_range, working_style, availability, specializationsValue, languagesValue];
+    const params = [name, bio, phone, location, preferred_contact, company_type, yearsExperienceValue, projectTypesValue, preferredCitiesValue, budget_range, working_style, availability, specializationsValue, languagesValue];
 
     if (isProfileComplete || forceSetupComplete) {
       updateSql += `, setup_completed = TRUE `;
