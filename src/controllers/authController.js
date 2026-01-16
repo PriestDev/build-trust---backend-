@@ -79,14 +79,11 @@ export const signup = async (req, res) => {
     );
 
     const userId = result.insertId;    
-    console.log('✨ USER CREATED SUCCESSFULLY - ID:', userId);    
 
     // Generate verification token
     const verificationToken = generateVerificationToken();
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours
-
-    console.log('📧 GENERATING VERIFICATION TOKEN');
 
     // Store verification token (with retry)
     await retryWithBackoff(() =>
@@ -96,12 +93,8 @@ export const signup = async (req, res) => {
       )
     );
 
-    console.log('✅ VERIFICATION TOKEN STORED');
-
     // Send verification email
-    console.log('📬 SENDING VERIFICATION EMAIL');
     await sendVerificationEmail(email, verificationToken);
-    console.log('✅ VERIFICATION EMAIL SENT');
 
     // 🔑 Create JWT for session (include final role)
     const token = jwt.sign(
@@ -109,8 +102,6 @@ export const signup = async (req, res) => {
       process.env.JWT_SECRET || 'your_secret_key',
       { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
     );
-
-    console.log('🔐 JWT TOKEN CREATED');
 
     // Store session in DB
     const sessionExpiresAt = new Date();
@@ -123,10 +114,6 @@ export const signup = async (req, res) => {
         [userId, token, sessionExpiresAt]
       )
     );
-
-    console.log('✅ SESSION STORED IN DATABASE');
-
-    console.log('🎉 SIGNUP COMPLETE - User ID:', userId);
 
     res.status(201).json({
       message: 'Account created successfully. Please check your email to verify your account.',
@@ -142,14 +129,12 @@ export const signup = async (req, res) => {
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.error('❌ VALIDATION ERROR - Invalid input fields');
       return res.status(400).json({
         error: 'Validation error',
         details: error.errors,
       });
     }
 
-    console.error('❌ SIGNUP ERROR - Database operation failed');
     res.status(500).json({ error: 'An error occurred while creating your account' });
   }
 };
@@ -257,12 +242,6 @@ export const updateProfile = async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
     const userId = decoded.userId || decoded.id; // Use actual ID from token
 
-    console.log('📥 BACKEND RECEIVED PROFILE DATA:', {
-      timestamp: new Date().toISOString(),
-      userId,
-      requestBody: req.body
-    });
-
     const { name, bio, phone, location, preferred_contact, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations, languages } = req.body;
 
     // Normalize array inputs to JSON strings for storage if arrays are provided
@@ -286,14 +265,6 @@ export const updateProfile = async (req, res) => {
       isProfileComplete = clientRequiredFields.every(f => 
         f !== undefined && f !== null && String(f).trim() !== ''
       );
-      console.log('🔍 CLIENT PROFILE COMPLETION CHECK:', {
-        name: !!name, 
-        phone: !!phone, 
-        location: !!location, 
-        bio: !!bio, 
-        preferred_contact: !!preferred_contact,
-        isComplete: isProfileComplete
-      });
     } else if (userRole === 'developer') {
       // Developer required fields: name, bio, company_type, years_experience, project_types, preferred_cities, budget_range, working_style, availability, specializations
       const developerRequiredFields = [
@@ -311,19 +282,6 @@ export const updateProfile = async (req, res) => {
       isProfileComplete = developerRequiredFields.every(f => 
         f !== undefined && f !== null && String(f).trim() !== '' && String(f) !== '[]'
       );
-      console.log('🔍 DEVELOPER PROFILE COMPLETION CHECK:', {
-        name: !!name,
-        bio: !!bio,
-        company_type: !!company_type,
-        years_experience: !!yearsExperienceValue,
-        project_types: projectTypesValue !== '[]',
-        preferred_cities: preferredCitiesValue !== '[]',
-        budget_range: !!budget_range,
-        working_style: !!working_style,
-        availability: !!availability,
-        specializations: specializationsValue !== '[]',
-        isComplete: isProfileComplete
-      });
     }
 
     // Allow client to force setup completion (e.g., final submit from setup UI)
@@ -338,42 +296,16 @@ export const updateProfile = async (req, res) => {
 
     if (isProfileComplete || forceSetupComplete) {
       updateSql += `, setup_completed = TRUE `;
-      console.log('✏️ SETTING SETUP_COMPLETED = TRUE:', {
-        reason: isProfileComplete ? 'All required fields provided' : 'Force completion flag set',
-        userRole,
-        timestamp: new Date().toISOString()
-      });
-    } else {
-      console.log('⏳ SETUP NOT YET COMPLETE:', {
-        userRole,
-        missingFields: true,
-        timestamp: new Date().toISOString()
-      });
     }
 
     updateSql += `WHERE id = ?`;
     params.push(userId);
-
-    console.log('💾 SAVING TO DATABASE:', {
-      timestamp: new Date().toISOString(),
-      userId,
-      query: updateSql,
-      values: params.slice(0, -1) // exclude userId from logging to avoid confusion
-    });
 
     await pool.query(updateSql, params);
 
     // Return updated user data
     const [updatedUsers] = await pool.query('SELECT id, email, name, role, bio, phone, location, company_type, years_experience, project_types, preferred_cities, languages, budget_range, working_style, availability, specializations, setup_completed FROM users WHERE id = ?', [userId]);
     const updatedUser = (Array.isArray(updatedUsers) && updatedUsers[0]) ? updatedUsers[0] : null;
-
-    console.log('✅ PROFILE SAVED TO DATABASE:', {
-      timestamp: new Date().toISOString(),
-      userId,
-      role: updatedUser?.role,
-      setupCompleted: updatedUser?.setup_completed,
-      updatedUser
-    });
 
     res.json({ message: 'Profile updated successfully', user: updatedUser });
   } catch (error) {
