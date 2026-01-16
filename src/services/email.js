@@ -35,14 +35,11 @@ const sendExternalEmail = async (toEmail, subject, message) => {
       result.status === "success" ||
       (result.message && result.message.includes("sent successfully"))
     ) {
-      console.log("Email sent successfully:", result.message);
       return true;
     } else {
-      console.error("Failed to send email:", result.message);
       return false;
     }
   } catch (err) {
-    console.error("Network error occurred while sending email.", err);
     return false;
   }
 };

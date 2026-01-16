@@ -50,7 +50,6 @@ export const createProject = async (req, res) => {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'Invalid token' });
     }
-    console.error('Project creation error:', error);
     res.status(500).json({ error: 'An error occurred while creating the project', details: error.message });
   }
 };
@@ -97,7 +96,6 @@ export const uploadProjectMedia = async (req, res) => {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'Invalid token' });
     }
-    console.error('Media upload error:', error);
     res.status(500).json({ error: 'An error occurred while uploading media' });
   }
 };
@@ -124,7 +122,6 @@ export const getProjects = async (req, res) => {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'Invalid token' });
     }
-    console.error('Get projects error:', error);
     res.status(500).json({ error: 'An error occurred while fetching projects' });
   }
 };
@@ -173,7 +170,6 @@ export const updateProject = async (req, res) => {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'Invalid token' });
     }
-    console.error('Project update error:', error);
     res.status(500).json({ error: 'An error occurred while updating the project' });
   }
 };
@@ -207,7 +203,6 @@ export const deleteProject = async (req, res) => {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'Invalid token' });
     }
-    console.error('Project deletion error:', error);
     res.status(500).json({ error: 'An error occurred while deleting the project' });
   }
 };

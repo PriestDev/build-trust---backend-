@@ -45,7 +45,7 @@ export const uploadDocument = async (req, res) => {
 
     res.status(201).json({ id: result.insertId, user_id: userId, type, filename: file.filename, url, size: file.size, metadata: JSON.parse(metadata) });
   } catch (error) {
-    console.error('Upload document error:', error);
+
     res.status(500).json({ error: 'An error occurred while uploading document' });
   }
 };
@@ -66,7 +66,7 @@ export const listDocuments = async (req, res) => {
 
     res.json({ documents: docs });
   } catch (error) {
-    console.error('List documents error:', error);
+
     res.status(500).json({ error: 'An error occurred while listing documents' });
   }
 };
@@ -101,7 +101,7 @@ export const deleteDocument = async (req, res) => {
 
     res.json({ message: 'Document deleted' });
   } catch (error) {
-    console.error('Delete document error:', error);
+
     res.status(500).json({ error: 'An error occurred while deleting document' });
   }
 };

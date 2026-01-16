@@ -69,7 +69,6 @@ function requireDocType(req, res, next) {
     });
     // Also handle errors on the stream
     req.on('error', (err) => {
-      console.error('Error while draining multipart request:', err);
       return res.status(400).json({ error: 'Document type is required' });
     });
     // Do not call next(); we are handling the response after drain

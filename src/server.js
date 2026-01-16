@@ -59,8 +59,6 @@ import multer from 'multer';
 // Multer / Upload error handler
 app.use((err, req, res, next) => {
   if (err) {
-    console.error('Upload or server error:', err.message || err);
-
     // Multer file size error
     if (err.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: 'File too large. Max size is 10 MB' });

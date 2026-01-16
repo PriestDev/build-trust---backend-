@@ -5,7 +5,6 @@ export const getUsers = async (req, res) => {
     const [results] = await pool.query('SELECT id, email, name, role, created_at FROM users');
     res.json(results);
   } catch (error) {
-    console.error('Get users error:', error);
     res.status(500).json({ error: 'An error occurred while fetching users' });
   }
 };
