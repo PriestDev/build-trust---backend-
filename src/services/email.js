@@ -25,10 +25,9 @@ const sendExternalEmail = async (toEmail, subject, message) => {
           email: toEmail,
           subject,
           message,
-          headers: {
-            "Content-Type": "text/html; charset=UTF-8",
-            "MIME-Version": "1.0",
-          },
+          messageType: "html",
+          isHtml: true,
+          contentType: "text/html; charset=UTF-8",
         }),
       }
     );
