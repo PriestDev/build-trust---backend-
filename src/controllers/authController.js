@@ -192,7 +192,6 @@ export const login = async (req, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Validation error', details: error.errors });
     }
-    console.error('Login error:', error);
     res.status(500).json({ error: 'An error occurred while signing in' });
   }
 };
@@ -227,7 +226,6 @@ export const getMe = async (req, res) => {
 
     res.json({ user: { id: user.id, email: user.email, name: user.name, role: user.role, created_at: user.created_at, email_verified: user.email_verified || false, setup_completed: Boolean(user.setup_completed || false) } });
   } catch (error) {
-    console.error('Get user error:', error);
     res.status(401).json({ error: 'Invalid token' });
   }
 };
@@ -312,7 +310,6 @@ export const updateProfile = async (req, res) => {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'Invalid token' });
     }
-    console.error('Profile update error:', error);
     res.status(500).json({ error: 'An error occurred while updating your profile' });
   }
 };
@@ -329,7 +326,7 @@ export const logout = async (req, res) => {
 
     res.json({ message: 'Signed out successfully' });
   } catch (error) {
-    console.error('Logout error:', error);
+
     res.status(500).json({ error: 'An error occurred while signing out' });
   }
 };
@@ -369,7 +366,6 @@ export const verifyEmail = async (req, res) => {
 
     res.json({ message: 'Email verified successfully', token: jwtToken, user: { id: updatedUser.id, email: updatedUser.email, name: updatedUser.name, role: updatedUser.role, email_verified: true } });
   } catch (error) {
-    console.error('Email verification error:', error);
     res.status(500).json({ error: 'An error occurred while verifying your email' });
   }
 };
@@ -406,7 +402,6 @@ export const resendVerification = async (req, res) => {
 
     res.json({ message: 'Verification email sent successfully' });
   } catch (error) {
-    console.error('Resend verification error:', error);
     res.status(500).json({ error: 'An error occurred while resending verification email' });
   }
 };
@@ -441,13 +436,11 @@ export const forgotPassword = async (req, res) => {
     // Send reset email
     const emailSent = await sendPasswordResetEmail(email, resetToken);
     if (!emailSent) {
-      console.error('Failed to send password reset email');
       return res.status(500).json({ error: 'Failed to send password reset email' });
     }
 
     res.json({ message: 'If an account with this email exists, a password reset link has been sent.' });
   } catch (error) {
-    console.error('Forgot password error:', error);
     res.status(500).json({ error: 'An error occurred while processing your request' });
   }
 };
@@ -481,7 +474,6 @@ export const resetPassword = async (req, res) => {
 
     res.json({ message: 'Password reset successfully' });
   } catch (error) {
-    console.error('Reset password error:', error);
     res.status(500).json({ error: 'An error occurred while resetting your password' });
   }
 };
