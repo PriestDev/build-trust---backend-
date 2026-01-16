@@ -14,6 +14,28 @@ const sendExternalEmail = async (toEmail, subject, message) => {
   }
 
   try {
+    // Create MIME multipart message for HTML support
+    const boundary = "----=_Part_" + Math.random().toString(36).substring(2, 15);
+    
+    const mimeMessage = `MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="${boundary}"
+Subject: ${subject}
+To: ${toEmail}
+
+--${boundary}
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+[HTML Email Content - Please view in HTML-compatible email client]
+
+--${boundary}
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+${message}
+
+--${boundary}--`;
+
     const response = await fetch(
       "https://gitaalliedtech.com/clocklyApp/clockly_email.php",
       {
@@ -24,7 +46,7 @@ const sendExternalEmail = async (toEmail, subject, message) => {
         body: JSON.stringify({
           email: toEmail,
           subject,
-          message,
+          message: mimeMessage,
           messageType: "html",
           isHtml: true,
           contentType: "text/html; charset=UTF-8",
