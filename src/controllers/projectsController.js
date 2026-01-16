@@ -16,13 +16,6 @@ export const createProject = async (req, res) => {
     // Use client_id from request or fall back to authenticated user ID
     const projectClientId = client_id || userId;
 
-    console.log('📥 BACKEND RECEIVED PROJECT DATA:', {
-      timestamp: new Date().toISOString(),
-      userId,
-      projectClientId,
-      requestBody: req.body
-    });
-
     // Validate required fields
     if (!title || !description) {
       return res.status(400).json({ 
@@ -39,13 +32,6 @@ export const createProject = async (req, res) => {
     );
 
     const projectId = insertResult.insertId;
-
-    console.log('✅ PROJECT CREATED IN DATABASE:', {
-      timestamp: new Date().toISOString(),
-      projectId,
-      title,
-      clientId: projectClientId
-    });
 
     // Fetch the created project
     const [projects] = await pool.query(
@@ -84,14 +70,6 @@ export const uploadProjectMedia = async (req, res) => {
       return res.status(400).json({ error: 'No file provided' });
     }
 
-    console.log('📥 BACKEND RECEIVED PROJECT MEDIA:', {
-      timestamp: new Date().toISOString(),
-      projectId,
-      userId,
-      fileName: req.file.filename,
-      size: req.file.size
-    });
-
     // Verify project belongs to user
     const [projects] = await pool.query(
       'SELECT client_id FROM projects WHERE id = ?',
@@ -109,13 +87,6 @@ export const uploadProjectMedia = async (req, res) => {
        VALUES (?, ?, ?, ?, NOW())`,
       [projectId, 'media', mediaUrl, req.file.filename]
     );
-
-    console.log('✅ PROJECT MEDIA STORED:', {
-      timestamp: new Date().toISOString(),
-      projectId,
-      mediaId: insertResult.insertId,
-      url: mediaUrl
-    });
 
     res.json({
       message: 'Media uploaded successfully',
@@ -145,12 +116,6 @@ export const getProjects = async (req, res) => {
       'SELECT id, client_id, title, type, location, budget, description, status, created_at, updated_at FROM projects WHERE client_id = ?',
       [userId]
     );
-
-    console.log('📥 PROJECTS RETRIEVED:', {
-      timestamp: new Date().toISOString(),
-      userId,
-      count: projects ? projects.length : 0
-    });
 
     res.json({ 
       projects: Array.isArray(projects) ? projects : [] 
@@ -192,12 +157,6 @@ export const updateProject = async (req, res) => {
        WHERE id = ?`,
       [title || '', type || '', location || '', budget || '', description || '', status || 'active', projectId]
     );
-
-    console.log('✅ PROJECT UPDATED:', {
-      timestamp: new Date().toISOString(),
-      projectId,
-      userId
-    });
 
     const [updatedProjects] = await pool.query(
       'SELECT id, client_id, title, type, location, budget, description, status, created_at, updated_at FROM projects WHERE id = ?',
@@ -242,12 +201,6 @@ export const deleteProject = async (req, res) => {
 
     // Delete project
     await pool.query('DELETE FROM projects WHERE id = ?', [projectId]);
-
-    console.log('✅ PROJECT DELETED:', {
-      timestamp: new Date().toISOString(),
-      projectId,
-      userId
-    });
 
     res.json({ message: 'Project deleted successfully' });
   } catch (error) {

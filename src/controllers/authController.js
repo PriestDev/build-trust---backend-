@@ -38,20 +38,14 @@ async function retryWithBackoff(fn, maxRetries = 5) {
 
 export const signup = async (req, res) => {
   try {
-    console.log('📝 SIGNUP REQUEST RECEIVED - Processing...');
-
     const validatedData = signupSchema.parse(req.body);
     const { email, password, name, role } = validatedData;
-
-    console.log('✅ VALIDATION PASSED');
 
     // Check intent (e.g. /auth?intent=developer-setup) — accept either query or body
     const intentParam = req.query && req.query.intent ? String(req.query.intent).toLowerCase() : (req.body && req.body.intent ? String(req.body.intent).toLowerCase() : null);
 
     // Decide final role: developer if intent indicates developer setup, otherwise use body role or default to client
     const finalRole = intentParam === 'developer-setup' ? 'developer' : (role || 'client');
-
-    console.log('🎯 ROLE DETERMINATION - Role set to:', finalRole);
 
     // Validate finalRole to match DB enum
     if (!['client', 'developer'].includes(finalRole)) {
@@ -67,7 +61,6 @@ export const signup = async (req, res) => {
     );
 
     if (Array.isArray(existingUsers) && existingUsers.length > 0) {
-      console.log('⚠️ USER ALREADY EXISTS');
       return res.status(400).json({
         error: 'An account with this email already exists',
       });
@@ -77,7 +70,6 @@ export const signup = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user (with retry)
-    console.log('💾 INSERTING USER INTO DATABASE');
 
     const [result] = await retryWithBackoff(() =>
       pool.query(

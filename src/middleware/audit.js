@@ -30,14 +30,6 @@ async function processAuditQueue() {
           auditData.email
         ]
       );
-      console.log('✅ AUDIT LOG RECORDED:', {
-        timestamp: new Date().toISOString(),
-        method: auditData.method,
-        route: auditData.route,
-        status: auditData.statusCode,
-        userId: auditData.userId,
-        email: auditData.email
-      });
     } catch (err) {
       // Silently log audit failures - they're not critical
       if (err.code !== 'ER_USER_LIMIT_REACHED') {
