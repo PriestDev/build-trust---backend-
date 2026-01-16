@@ -20,11 +20,14 @@ const sendExternalEmail = async (toEmail, subject, message) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "X-Email-Format": "html",
         },
         body: JSON.stringify({
           email: toEmail,
           subject,
           message,
+          isHtml: true,
+          contentType: "text/html; charset=UTF-8",
         }),
       }
     );
