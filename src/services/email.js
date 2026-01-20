@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import nodemailer from "nodemailer";
+import sgTransport from "nodemailer-sendgrid-transport";
 import fs from "fs";
 import path from "path";
 
@@ -32,34 +33,28 @@ const createTransporter = async () => {
     return cachedTransporter;
   }
 
-  // Development/Production: Use Gmail
-  if (process.env.NODE_ENV === 'development' || !process.env.SMTP_HOST) {
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD,
-      },
-      connectionTimeout: 10000,  // 10 seconds
-      socketTimeout: 20000,      // 20 seconds
-      greetingTimeout: 10000,    // 10 seconds
-      logger: false,             // Disable nodemailer logging
-      debug: false
-    });
+  // Priority 1: SendGrid (for Render production where Gmail is blocked)
+  if (process.env.SENDGRID_API_KEY) {
+    console.log("📧 Using SendGrid transporter (recommended for production)...");
+    const transporter = nodemailer.createTransport(
+      sgTransport({
+        auth: {
+          api_key: process.env.SENDGRID_API_KEY,
+        },
+      })
+    );
 
-    // Try to verify connection BUT DON'T BLOCK on failure
     // Fire and forget verification
     Promise.race([
       transporter.verify(),
       new Promise((_, reject) => setTimeout(() => reject(new Error("Verification timeout")), 3000))
     ])
       .then(() => {
-        console.log("📧 Gmail transporter verified!");
+        console.log("📧 SendGrid transporter verified!");
         transporterVerified = true;
       })
       .catch(err => {
-        console.warn("⚠️ Gmail verification skipped (will try to send anyway):", err.message);
-        // Still mark as verified so we attempt to send emails
+        console.warn("⚠️ SendGrid verification skipped (will try to send anyway):", err.message);
         transporterVerified = true;
       });
 
@@ -67,24 +62,61 @@ const createTransporter = async () => {
     return transporter;
   }
 
-  // Production: Use custom SMTP server (if configured)
+  // Priority 2: Custom SMTP
+  if (process.env.SMTP_HOST) {
+    console.log("📧 Using custom SMTP transporter...");
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+      connectionTimeout: 10000,  // 10 seconds
+      socketTimeout: 20000,      // 20 seconds
+      greetingTimeout: 10000,    // 10 seconds
+      logger: false,
+      debug: false
+    });
+
+    cachedTransporter = transporter;
+    transporterVerified = true;
+    return transporter;
+  }
+
+  // Priority 3: Gmail (local development only)
+  console.log("📧 Using Gmail transporter (local development)...");
   const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
+    service: 'gmail',
     auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
     },
     connectionTimeout: 10000,  // 10 seconds
     socketTimeout: 20000,      // 20 seconds
     greetingTimeout: 10000,    // 10 seconds
-    logger: false,
+    logger: false,             // Disable nodemailer logging
     debug: false
   });
 
+  // Try to verify connection BUT DON'T BLOCK on failure
+  // Fire and forget verification
+  Promise.race([
+    transporter.verify(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Verification timeout")), 3000))
+  ])
+    .then(() => {
+      console.log("📧 Gmail transporter verified!");
+      transporterVerified = true;
+    })
+    .catch(err => {
+      console.warn("⚠️ Gmail verification skipped (will try to send anyway):", err.message);
+      // Still mark as verified so we attempt to send emails
+      transporterVerified = true;
+    });
+
   cachedTransporter = transporter;
-  transporterVerified = true;
   return transporter;
 };
 
