@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.js';
 import userDocumentsRoutes from './routes/userDocuments.js';
 import projectsRoutes from './routes/projects.js';
 import { initializeDatabase } from './config/dbInit.js';
+import { runMigrations } from './config/migrations.js';
 import fs from 'fs';
 import path from 'path';
 
@@ -44,6 +45,9 @@ app.use('/uploads', express.static(uploadsDir));
 
 // Initialize database
 initializeDatabase().catch(console.error);
+
+// Run migrations
+runMigrations().catch(console.error);
 
 // Global error handlers
 process.on('uncaughtException', (err) => {
