@@ -32,8 +32,8 @@ const createTransporter = async () => {
     return cachedTransporter;
   }
 
-  // Development: Use Gmail
-  if (process.env.NODE_ENV === 'development') {
+  // Development/Production: Use Gmail
+  if (process.env.NODE_ENV === 'development' || !process.env.SMTP_HOST) {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
@@ -42,29 +42,32 @@ const createTransporter = async () => {
       },
       connectionTimeout: 10000,  // 10 seconds
       socketTimeout: 20000,      // 20 seconds
-      greetingTimeout: 10000     // 10 seconds
+      greetingTimeout: 10000,    // 10 seconds
+      logger: false,             // Disable nodemailer logging
+      debug: false
     });
 
-    // Try to verify connection with timeout
-    try {
-      console.log("📧 Verifying Gmail transporter...");
-      await Promise.race([
-        transporter.verify(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Transporter verification timeout")), 5000))
-      ]);
-      console.log("📧 Gmail transporter verified!");
-      cachedTransporter = transporter;
-      transporterVerified = true;
-    } catch (err) {
-      console.warn("⚠️ Gmail transporter verification failed:", err.message);
-      // Still return the transporter, we'll handle errors during sending
-      cachedTransporter = transporter;
-      transporterVerified = true;
-    }
+    // Try to verify connection BUT DON'T BLOCK on failure
+    // Fire and forget verification
+    Promise.race([
+      transporter.verify(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Verification timeout")), 3000))
+    ])
+      .then(() => {
+        console.log("📧 Gmail transporter verified!");
+        transporterVerified = true;
+      })
+      .catch(err => {
+        console.warn("⚠️ Gmail verification skipped (will try to send anyway):", err.message);
+        // Still mark as verified so we attempt to send emails
+        transporterVerified = true;
+      });
+
+    cachedTransporter = transporter;
     return transporter;
   }
 
-  // Production: Use custom SMTP server
+  // Production: Use custom SMTP server (if configured)
   const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: parseInt(process.env.SMTP_PORT || '587'),
@@ -75,7 +78,9 @@ const createTransporter = async () => {
     },
     connectionTimeout: 10000,  // 10 seconds
     socketTimeout: 20000,      // 20 seconds
-    greetingTimeout: 10000     // 10 seconds
+    greetingTimeout: 10000,    // 10 seconds
+    logger: false,
+    debug: false
   });
 
   cachedTransporter = transporter;
@@ -101,13 +106,20 @@ const sendExternalEmail = async (toEmail, subject, htmlMessage, maxRetries = 3) 
           subject: subject,
           html: htmlMessage,
           text: 'Please view this email in an HTML-compatible email client.',
+          // Add connection pool options
+          pool: true,
+          maxConnections: 1,
+          maxMessages: 100,
+          rateDelta: 1000,
+          rateLimit: 14
         };
 
-        // Set a longer timeout for the email sending (30 seconds)
+        // Set a much longer timeout for the email sending (60 seconds total)
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Email sending timeout (30s)')), 30000)
+          setTimeout(() => reject(new Error(`Email sending timeout after ${60}s`)), 60000)
         );
 
+        console.log(`  ⏳ Attempting to send via transporter...`);
         const sendPromise = transporter.sendMail(mailOptions);
         const info = await Promise.race([sendPromise, timeoutPromise]);
         
@@ -119,8 +131,8 @@ const sendExternalEmail = async (toEmail, subject, htmlMessage, maxRetries = 3) 
         console.error(`❌ Attempt ${attempt} failed for ${toEmail}:`, err.message);
         
         if (attempt < maxRetries) {
-          // Wait before retrying: 2000ms * attempt
-          const waitTime = 2000 * attempt;
+          // Wait before retrying: 3s * attempt
+          const waitTime = 3000 * attempt;
           console.log(`⏳ Retrying in ${waitTime}ms...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
         }
