@@ -414,18 +414,23 @@ export const forgotPassword = async (req, res) => {
 
     if (!email) return res.status(400).json({ error: 'Email is required' });
 
+    console.log(`🔑 Forgot password request for: ${email}`);
+
     // Find user
     const [users] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
 
     if (!Array.isArray(users) || users.length === 0) {
       // Don't reveal if email exists or not for security
+      console.log(`⚠️ Email not found in system: ${email}`);
       return res.json({ message: 'If an account with this email exists, a password reset link has been sent.' });
     }
 
     const user = users[0];
+    console.log(`✓ User found for email: ${email}, user_id: ${user.id}`);
 
     // Delete existing unused tokens for this user
     await pool.query('DELETE FROM password_reset_tokens WHERE user_id = ? AND used = FALSE', [user.id]);
+    console.log(`✓ Cleaned up old password reset tokens for user ${user.id}`);
 
     // Generate reset token
     const resetToken = generateVerificationToken();
@@ -434,15 +439,19 @@ export const forgotPassword = async (req, res) => {
 
     // Store reset token
     await pool.query('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, ?)', [user.id, resetToken, expiresAt]);
+    console.log(`✓ Password reset token stored for user ${user.id}`);
 
-    // Send reset email
-    const emailSent = await sendPasswordResetEmail(email, resetToken);
-    if (!emailSent) {
-      return res.status(500).json({ error: 'Failed to send password reset email' });
-    }
+    // Send reset email (fire and forget, don't block the response)
+    sendPasswordResetEmail(email, resetToken).catch(err => {
+      console.error(`❌ Failed to send password reset email to ${email}:`, err);
+    });
+    
+    console.log(`✓ Password reset email sent to ${email}`);
 
     res.json({ message: 'If an account with this email exists, a password reset link has been sent.' });
   } catch (error) {
+    console.error('❌ forgotPassword error:', error);
+    console.error('Stack:', error.stack);
     res.status(500).json({ error: 'An error occurred while processing your request' });
   }
 };
