@@ -45,6 +45,16 @@ app.use('/uploads', express.static(uploadsDir));
 // Initialize database
 initializeDatabase().catch(console.error);
 
+// Global error handlers
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
 import { auditSubmission } from './middleware/audit.js';
 // Audit submissions (non-GET requests)
 app.use(auditSubmission);

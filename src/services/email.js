@@ -1,75 +1,117 @@
 import crypto from "crypto";
+import nodemailer from "nodemailer";
+import fs from "fs";
+import path from "path";
 
 // Generate secure verification token
 export const generateVerificationToken = () => {
   return crypto.randomBytes(32).toString("hex");
 };
 
-// Reusable function to send emails through external PHP API
-const sendExternalEmail = async (toEmail, subject, message) => {
-  // During tests, avoid external network calls and noisy logs
-  if (process.env.NODE_ENV === 'test') {
-    // Simulate a fast successful send
-    return true;
-  }
-
+// Get logo as base64 data URI
+const getLogoBase64 = () => {
   try {
-    // Create MIME multipart message for HTML support
-    const boundary = "----=_Part_" + Math.random().toString(36).substring(2, 15);
-    
-    const mimeMessage = `MIME-Version: 1.0
-Content-Type: multipart/alternative; boundary="${boundary}"
-Subject: ${subject}
-To: ${toEmail}
-
---${boundary}
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 7bit
-
-[HTML Email Content - Please view in HTML-compatible email client]
-
---${boundary}
-Content-Type: text/html; charset=UTF-8
-Content-Transfer-Encoding: 7bit
-
-${message}
-
---${boundary}--`;
-
-    const response = await fetch(
-      "https://gitaalliedtech.com/clocklyApp/clockly_email.php",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: toEmail,
-          subject,
-          message: mimeMessage,
-          messageType: "html",
-          isHtml: true,
-          contentType: "text/html; charset=UTF-8",
-        }),
-      }
-    );
-
-    const result = await response.json();
-
-    if (
-      result.status === "success" ||
-      (result.message && result.message.includes("sent successfully"))
-    ) {
-      console.log("Email sent successfully:", result.message);
-      return true;
-    } else {
-      console.error("Failed to send email:", result.message);
-      return false;
-    }
+    const logoPath = path.join(process.cwd(), '../frontend/public/Logo.png');
+    const imageBuffer = fs.readFileSync(logoPath);
+    const base64 = imageBuffer.toString('base64');
+    return `data:image/png;base64,${base64}`;
   } catch (err) {
-    console.error("Network error occurred while sending email.", err);
-    return false;
+    console.warn("⚠️ Could not load logo as base64, falling back to URL:", err.message);
+    return `${process.env.FRONTEND_URL || "http://localhost:5173"}/Logo.png`;
   }
+};
+
+// Cache transporter to avoid recreating for every email
+let cachedTransporter = null;
+let transporterVerified = false;
+
+// Create transporter based on environment
+const createTransporter = async () => {
+  // Return cached transporter if already verified
+  if (cachedTransporter && transporterVerified) {
+    return cachedTransporter;
+  }
+
+  // Development: Use Gmail
+  if (process.env.NODE_ENV === 'development') {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD,
+      }
+    });
+
+    // Try to verify connection with timeout
+    try {
+      console.log("📧 Verifying Gmail transporter...");
+      await Promise.race([
+        transporter.verify(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Transporter verification timeout")), 5000))
+      ]);
+      console.log("📧 Gmail transporter verified!");
+      cachedTransporter = transporter;
+      transporterVerified = true;
+    } catch (err) {
+      console.warn("⚠️ Gmail transporter verification failed:", err.message);
+      // Still return the transporter, we'll handle errors during sending
+      cachedTransporter = transporter;
+      transporterVerified = true;
+    }
+    return transporter;
+  }
+
+  // Production: Use custom SMTP server
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    }
+  });
+
+  cachedTransporter = transporter;
+  transporterVerified = true;
+  return transporter;
+};
+
+// Send emails via nodemailer - runs asynchronously without blocking
+const sendExternalEmail = async (toEmail, subject, htmlMessage) => {
+  // Fire and forget - don't await the email sending
+  Promise.resolve().then(async () => {
+    try {
+      console.log(`📧 Sending email to: ${toEmail}`);
+      
+      const transporter = await createTransporter();
+      
+      const mailOptions = {
+        from: process.env.MAIL_FROM || process.env.GMAIL_USER || 'noreply@buildtrust.africa',
+        to: toEmail,
+        subject: subject,
+        html: htmlMessage,
+        text: 'Please view this email in an HTML-compatible email client.',
+      };
+
+      // Set a timeout for the email sending
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Email sending timeout')), 10000)
+      );
+
+      const sendPromise = transporter.sendMail(mailOptions);
+      const info = await Promise.race([sendPromise, timeoutPromise]);
+      
+      console.log(`✅ Email sent successfully to ${toEmail}`);
+      console.log(`📧 Message ID: ${info.messageId}`);
+    } catch (err) {
+      console.error(`❌ Error sending email to ${toEmail}:`, err.message);
+    }
+  }).catch(err => {
+    console.error('❌ Uncaught error in email sending:', err);
+  });
+  
+  return true;
 };
 
 // ------------------------------------------------------------
@@ -81,11 +123,15 @@ export const sendVerificationEmail = async (
   verificationToken
 ) => {
   const verificationUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/verify-email?token=${verificationToken}`;
+  const logoUrl = getLogoBase64();
 
   const message = `
 <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <img src="${logoUrl}" alt="BuildTrust Africa" style="max-width: 150px; height: auto;">
+    </div>
     <div style="background: linear-gradient(135deg, #226F75 0%, #253E44 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="font-size: 28px; font-weight: bold; margin-bottom: 10px; margin: 0 0 10px 0;">Verify Your Email</h1>
+        <h1 style="font-size: 28px; font-weight: bold; margin: 0 0 10px 0;">Verify Your Email</h1>
         <p style="font-size: 14px; opacity: 0.9; margin: 0;">Welcome to BuildTrust Africa</p>
     </div>
     <div style="background: #f8f9fa; padding: 40px 20px;">
@@ -131,11 +177,15 @@ export const sendPasswordResetEmail = async (
   resetToken
 ) => {
   const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/reset-password?token=${resetToken}`;
+  const logoUrl = getLogoBase64();
 
   const message = `
 <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+    <div style="text-align: center; margin-bottom: 30px;">
+        <img src="${logoUrl}" alt="BuildTrust Africa" style="max-width: 150px; height: auto;">
+    </div>
     <div style="background: linear-gradient(135deg, #226F75 0%, #253E44 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="font-size: 28px; font-weight: bold; margin-bottom: 10px; margin: 0 0 10px 0;">Reset Your Password</h1>
+        <h1 style="font-size: 28px; font-weight: bold; margin: 0 0 10px 0;">Reset Your Password</h1>
         <p style="font-size: 14px; opacity: 0.9; margin: 0;">BuildTrust Africa</p>
     </div>
     <div style="background: #f8f9fa; padding: 40px 20px;">

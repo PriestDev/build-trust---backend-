@@ -93,8 +93,10 @@ export const signup = async (req, res) => {
       )
     );
 
-    // Send verification email
-    await sendVerificationEmail(email, verificationToken);
+    // Send verification email (fire and forget - don't await)
+    sendVerificationEmail(email, verificationToken).catch(err => {
+      console.error('Email sending failed (non-blocking):', err);
+    });
 
     // 🔑 Create JWT for session (include final role)
     const token = jwt.sign(
