@@ -39,7 +39,10 @@ const createTransporter = async () => {
       auth: {
         user: process.env.GMAIL_USER,
         pass: process.env.GMAIL_APP_PASSWORD,
-      }
+      },
+      connectionTimeout: 10000,  // 10 seconds
+      socketTimeout: 20000,      // 20 seconds
+      greetingTimeout: 10000     // 10 seconds
     });
 
     // Try to verify connection with timeout
@@ -69,7 +72,10 @@ const createTransporter = async () => {
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
-    }
+    },
+    connectionTimeout: 10000,  // 10 seconds
+    socketTimeout: 20000,      // 20 seconds
+    greetingTimeout: 10000     // 10 seconds
   });
 
   cachedTransporter = transporter;
@@ -78,35 +84,51 @@ const createTransporter = async () => {
 };
 
 // Send emails via nodemailer - runs asynchronously without blocking
-const sendExternalEmail = async (toEmail, subject, htmlMessage) => {
+const sendExternalEmail = async (toEmail, subject, htmlMessage, maxRetries = 3) => {
   // Fire and forget - don't await the email sending
   Promise.resolve().then(async () => {
-    try {
-      console.log(`📧 Sending email to: ${toEmail}`);
-      
-      const transporter = await createTransporter();
-      
-      const mailOptions = {
-        from: process.env.MAIL_FROM || process.env.GMAIL_USER || 'noreply@buildtrust.africa',
-        to: toEmail,
-        subject: subject,
-        html: htmlMessage,
-        text: 'Please view this email in an HTML-compatible email client.',
-      };
+    let lastError;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`📧 Sending email to: ${toEmail} (Attempt ${attempt}/${maxRetries})`);
+        
+        const transporter = await createTransporter();
+        
+        const mailOptions = {
+          from: process.env.MAIL_FROM || process.env.GMAIL_USER || 'noreply@buildtrust.africa',
+          to: toEmail,
+          subject: subject,
+          html: htmlMessage,
+          text: 'Please view this email in an HTML-compatible email client.',
+        };
 
-      // Set a timeout for the email sending
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Email sending timeout')), 10000)
-      );
+        // Set a longer timeout for the email sending (30 seconds)
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Email sending timeout (30s)')), 30000)
+        );
 
-      const sendPromise = transporter.sendMail(mailOptions);
-      const info = await Promise.race([sendPromise, timeoutPromise]);
-      
-      console.log(`✅ Email sent successfully to ${toEmail}`);
-      console.log(`📧 Message ID: ${info.messageId}`);
-    } catch (err) {
-      console.error(`❌ Error sending email to ${toEmail}:`, err.message);
+        const sendPromise = transporter.sendMail(mailOptions);
+        const info = await Promise.race([sendPromise, timeoutPromise]);
+        
+        console.log(`✅ Email sent successfully to ${toEmail}`);
+        console.log(`📧 Message ID: ${info.messageId}`);
+        return; // Success - exit function
+      } catch (err) {
+        lastError = err;
+        console.error(`❌ Attempt ${attempt} failed for ${toEmail}:`, err.message);
+        
+        if (attempt < maxRetries) {
+          // Wait before retrying: 2000ms * attempt
+          const waitTime = 2000 * attempt;
+          console.log(`⏳ Retrying in ${waitTime}ms...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
     }
+    
+    // All retries failed
+    console.error(`❌ All ${maxRetries} attempts failed for ${toEmail}:`, lastError?.message);
   }).catch(err => {
     console.error('❌ Uncaught error in email sending:', err);
   });
